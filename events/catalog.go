@@ -1,10 +1,10 @@
 package events
 
 import (
-	log "github.com/Sirupsen/logrus"
+	"github.com/PastureStack/kubectl-service/helm"
 	"github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/client"
-	"github.com/rancher/kubectld/helm"
+	log "github.com/sirupsen/logrus"
 )
 
 func installCatalog(event *events.Event, cli *client.RancherClient) (map[string]interface{}, error) {

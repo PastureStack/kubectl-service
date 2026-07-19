@@ -1,15 +1,75 @@
-FROM golang:1.8.3
-RUN go get github.com/golang/lint/golint
-RUN go get github.com/rancher/trash
-RUN curl -sL https://get.docker.com/builds/Linux/x86_64/docker-1.9.1 > /usr/bin/docker && \
-    chmod +x /usr/bin/docker
-ENV PATH /go/bin:$PATH
-ENV DAPPER_SOURCE /go/src/github.com/rancher/kubectld
-ENV DAPPER_OUTPUT bin dist
-ENV DAPPER_DOCKER_SOCKET true
-ENV DAPPER_ENV TAG REPO
-ENV GO15VENDOREXPERIMENT 1
-ENV TRASH_CACHE ${DAPPER_SOURCE}/.trash-cache
+FROM ubuntu:26.04
+
+ARG DAPPER_HOST_ARCH=amd64
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256_amd64=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_SHA256_arm64=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+ARG DOCKER_VERSION=29.5.3
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOST_ARCH=${DAPPER_HOST_ARCH} \
+    ARCH=${DAPPER_HOST_ARCH} \
+    GOPATH=/go \
+    GO111MODULE=off \
+    GOCACHE=/tmp/go-build-cache \
+    GOTELEMETRY=off \
+    XDG_CONFIG_HOME=/tmp/go-config \
+    GIT_CONFIG_GLOBAL=/tmp/gitconfig \
+    PATH=/go/bin:/usr/local/go/bin:${PATH} \
+    SHELL=/bin/bash
+
+RUN set -eux; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+        -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" {} +; \
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        file \
+        gcc \
+        git \
+        libc6-dev \
+        make \
+        tar \
+        xz-utils; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -f /usr/bin/pebble; \
+    rm -f /bin/sh; \
+    ln -s /bin/bash /bin/sh
+
+RUN set -eux; \
+    case "${DAPPER_HOST_ARCH}" in \
+        amd64) go_arch=amd64; docker_arch=x86_64; go_sha="${GO_SHA256_amd64}" ;; \
+        arm64) go_arch=arm64; docker_arch=aarch64; go_sha="${GO_SHA256_arm64}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz"; \
+    echo "${go_sha}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    docker_tgz=/tmp/docker.tgz; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o "$docker_tgz" "https://download.docker.com/linux/static/stable/${docker_arch}/docker-${DOCKER_VERSION}.tgz"; \
+    tar xzf "$docker_tgz" -C /usr/bin --strip-components=1 docker/docker; \
+    rm -f "$docker_tgz"; \
+    chmod +x /usr/bin/docker; \
+    mkdir -p /go/bin /go/src; \
+    git config --system --add safe.directory '*'; \
+    go version; \
+    docker --version
+
+ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/kubectl-service \
+    DAPPER_OUTPUT="bin dist" \
+    DAPPER_DOCKER_SOCKET=true \
+    DAPPER_ENV="TAG REPO IMAGE_NAME VERSION_OVERRIDE DOCKER_BUILD_NETWORK UBUNTU_MIRROR" \
+    GO15VENDOREXPERIMENT=1 \
+    HOME=/go/src/github.com/PastureStack/kubectl-service
+
 WORKDIR ${DAPPER_SOURCE}
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]

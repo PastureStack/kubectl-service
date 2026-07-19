@@ -3,5 +3,8 @@
 /dist
 *.swp
 /.trash-cache
-/package/kubectld
-kubectld
+/package/kubectl-service
+/package/LICENSE
+/package/SECURITY.md
+/package/UNOFFICIAL_MAINTENANCE_FORK.md
+kubectl-service

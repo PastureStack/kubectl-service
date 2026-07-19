@@ -1,23 +1,15 @@
-TARGETS := $(shell ls scripts)
+TARGETS := $(shell ls scripts 2>/dev/null)
 
-.dapper:
-	@echo Downloading dapper
-	@curl -sL https://releases.rancher.com/dapper/latest/dapper-`uname -s`-`uname -m` > .dapper.tmp
-	@@chmod +x .dapper.tmp
-	@./.dapper.tmp -v
-	@mv .dapper.tmp .dapper
+.PHONY: $(TARGETS) deps trash trash-keep
 
-$(TARGETS): .dapper
-	./.dapper $@
+$(TARGETS):
+	@echo "Vendored dependency; standalone dapper execution is disabled in this maintenance fork."
 
-trash: .dapper
-	./.dapper -m bind trash
+trash:
+	@echo "Dependencies are vendored; no legacy trash dependency sync is required."
 
-trash-keep: .dapper
-	./.dapper -m bind trash -k
+trash-keep: trash
 
 deps: trash
 
 .DEFAULT_GOAL := ci
-
-.PHONY: $(TARGETS)

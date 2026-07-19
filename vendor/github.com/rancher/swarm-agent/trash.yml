@@ -9,7 +9,7 @@ import:
   version: cec3f19b1d800de38185ec0e08446156254ec463
 - package: github.com/rancher/go-rancher
   version: ce2d465a0d29d81724fea8d4adbffbba86256fba
-- package: github.com/Sirupsen/logrus
+- package: github.com/sirupsen/logrus
   version: 446d1c146faa8ed3f4218f056fcd165f6bcfda81
 - package: github.com/docker/machine
   version: 25672016fafa6824b0b386e5d83ca7ffa0e5440e

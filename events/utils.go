@@ -1,17 +1,20 @@
 package events
 
 import (
-	"github.com/Sirupsen/logrus"
+	"sort"
+	"strings"
+
+	"github.com/PastureStack/kubectl-service/helm"
 	"github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/client"
-	"github.com/rancher/kubectld/helm"
+	"github.com/sirupsen/logrus"
 )
 
 type EventHandlerWithData func(*events.Event, *client.RancherClient) (map[string]interface{}, error)
 
 func wrap(event *events.Event, cli *client.RancherClient, fn EventHandlerWithData) error {
 	logrus.Infof("Received event: Name: %s, Event Id: %s, Resource Id: %s", event.Name, event.ID, event.ResourceID)
-	logrus.Debugf("event.Data: %+v", event.Data)
+	logrus.Debugf("event.Data keys: %s", safeDataKeys(event.Data))
 	data, err := fn(event, cli)
 	resp := newReply(event)
 	if err == nil {
@@ -21,6 +24,20 @@ func wrap(event *events.Event, cli *client.RancherClient, fn EventHandlerWithDat
 		resp.Transitioning = "error"
 	}
 	return publishReply(resp, cli)
+}
+
+func safeDataKeys(data map[string]interface{}) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	return strings.Join(keys, ",")
 }
 
 func decodeHelmStack(event *events.Event, cli *client.RancherClient, isUpgrade bool) *helm.Stack {

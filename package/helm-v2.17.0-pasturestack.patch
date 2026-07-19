@@ -1,0 +1,1346 @@
+diff --git a/cmd/helm/helm.go b/cmd/helm/helm.go
+index da648d5..fabd894 100644
+--- a/cmd/helm/helm.go
++++ b/cmd/helm/helm.go
+@@ -30,7 +30,6 @@ import (
+ 	"k8s.io/client-go/rest"
+ 
+ 	// Import to initialize client auth plugins.
+-	_ "k8s.io/client-go/plugin/pkg/client/auth"
+ 
+ 	"k8s.io/helm/pkg/helm"
+ 	helm_env "k8s.io/helm/pkg/helm/environment"
+diff --git a/pkg/kube/client.go b/pkg/kube/client.go
+index ac6bd5e..5bc84cf 100644
+--- a/pkg/kube/client.go
++++ b/pkg/kube/client.go
+@@ -62,7 +62,6 @@ import (
+ 	watchtools "k8s.io/client-go/tools/watch"
+ 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
+ 	"k8s.io/kubectl/pkg/validation"
+-	"k8s.io/kubernetes/pkg/kubectl/cmd/get"
+ )
+ 
+ // MissingGetHeader is added to Get's output when a resource is not found.
+@@ -419,7 +418,7 @@ func (c *Client) Get(namespace string, reader io.Reader) (string, error) {
+ 		vk = sortTableSlice(vk)
+ 
+ 		// The printer flag setup follows a simalar setup to kubectl
+-		printFlags := get.NewHumanPrintFlags()
++		printFlags := newHumanPrintFlags()
+ 		if lgk, ok := gk[t]; ok {
+ 			printFlags.SetKind(lgk)
+ 		}
+@@ -428,7 +427,7 @@ func (c *Client) Get(namespace string, reader io.Reader) (string, error) {
+ 		if err != nil {
+ 			return "", err
+ 		}
+-		printer = &get.TablePrinter{Delegate: printer}
++		printer = &tablePrinter{Delegate: printer}
+ 
+ 		for _, resource := range vk {
+ 			if err := printer.PrintObj(resource, buf); err != nil {
+@@ -571,9 +570,9 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
+ 
+ 	switch {
+ 	case err != nil:
+-		return fmt.Errorf(strings.Join(append([]string{err.Error()}, cleanupErrors...), " && "))
++		return fmt.Errorf("%s", strings.Join(append([]string{err.Error()}, cleanupErrors...), " && "))
+ 	case len(updateErrors) != 0:
+-		return fmt.Errorf(strings.Join(append(updateErrors, cleanupErrors...), " && "))
++		return fmt.Errorf("%s", strings.Join(append(updateErrors, cleanupErrors...), " && "))
+ 	}
+ 
+ 	for _, info := range original.Difference(target) {
+@@ -602,7 +601,7 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
+ 		if opts.CleanupOnFail && err != nil {
+ 			c.Log("Cleanup on fail enabled: cleaning up newly created resources due to wait failure during update")
+ 			cleanupErrors = c.cleanup(newlyCreatedResources)
+-			return fmt.Errorf(strings.Join(append([]string{err.Error()}, cleanupErrors...), " && "))
++			return fmt.Errorf("%s", strings.Join(append([]string{err.Error()}, cleanupErrors...), " && "))
+ 		}
+ 
+ 		return err
+@@ -699,8 +698,8 @@ func (c *Client) watchTimeout(t time.Duration) ResourceActorFunc {
+ // For most kinds, it checks to see if the resource is marked as Added or Modified
+ // by the Kubernetes event stream. For some kinds, it does more:
+ //
+-// - Jobs: A job is marked "Ready" when it has successfully completed. This is
+-//   ascertained by watching the Status fields in a job's output.
++//   - Jobs: A job is marked "Ready" when it has successfully completed. This is
++//     ascertained by watching the Status fields in a job's output.
+ //
+ // Handling for other kinds will be added as necessary.
+ func (c *Client) WatchUntilReady(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+diff --git a/pkg/kube/pasturestack_humanreadable_flags.go b/pkg/kube/pasturestack_humanreadable_flags.go
+new file mode 100644
+index 0000000..ea59dfc
+--- /dev/null
++++ b/pkg/kube/pasturestack_humanreadable_flags.go
+@@ -0,0 +1,138 @@
++/*
++Copyright 2018 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package kube
++
++import (
++	"github.com/spf13/cobra"
++	"k8s.io/cli-runtime/pkg/genericclioptions"
++
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	legacyprinters "k8s.io/helm/pkg/pasturestack/printers"
++)
++
++// humanPrintFlags provides default flags necessary for printing.
++// Given the following flag values, a printer can be requested that knows
++// how to handle printing based on these values.
++type humanPrintFlags struct {
++	ShowKind     *bool
++	ShowLabels   *bool
++	SortBy       *string
++	ColumnLabels *[]string
++
++	// get.go-specific values
++	NoHeaders bool
++
++	Kind          schema.GroupKind
++	WithNamespace bool
++}
++
++// SetKind sets the Kind option
++func (f *humanPrintFlags) SetKind(kind schema.GroupKind) {
++	f.Kind = kind
++}
++
++// EnsureWithKind sets the "Showkind" humanreadable option to true.
++func (f *humanPrintFlags) EnsureWithKind() error {
++	showKind := true
++	f.ShowKind = &showKind
++	return nil
++}
++
++// EnsureWithNamespace sets the "WithNamespace" humanreadable option to true.
++func (f *humanPrintFlags) EnsureWithNamespace() error {
++	f.WithNamespace = true
++	return nil
++}
++
++// AllowedFormats returns more customized formating options
++func (f *humanPrintFlags) AllowedFormats() []string {
++	return []string{"wide"}
++}
++
++// ToPrinter receives an outputFormat and returns a printer capable of
++// handling human-readable output.
++func (f *humanPrintFlags) ToPrinter(outputFormat string) (legacyprinters.ResourcePrinter, error) {
++	if len(outputFormat) > 0 && outputFormat != "wide" {
++		return nil, genericclioptions.NoCompatiblePrinterError{Options: f, AllowedFormats: f.AllowedFormats()}
++	}
++
++	showKind := false
++	if f.ShowKind != nil {
++		showKind = *f.ShowKind
++	}
++
++	showLabels := false
++	if f.ShowLabels != nil {
++		showLabels = *f.ShowLabels
++	}
++
++	columnLabels := []string{}
++	if f.ColumnLabels != nil {
++		columnLabels = *f.ColumnLabels
++	}
++
++	p := legacyprinters.NewTablePrinter(legacyprinters.PrintOptions{
++		Kind:          f.Kind,
++		WithKind:      showKind,
++		NoHeaders:     f.NoHeaders,
++		Wide:          outputFormat == "wide",
++		WithNamespace: f.WithNamespace,
++		ColumnLabels:  columnLabels,
++		ShowLabels:    showLabels,
++	})
++
++	// TODO(juanvallejo): handle sorting here
++
++	return p, nil
++}
++
++// AddFlags receives a *cobra.Command reference and binds
++// flags related to human-readable printing to it
++func (f *humanPrintFlags) AddFlags(c *cobra.Command) {
++	if f.ShowLabels != nil {
++		c.Flags().BoolVar(f.ShowLabels, "show-labels", *f.ShowLabels, "When printing, show all labels as the last column (default hide labels column)")
++	}
++	if f.SortBy != nil {
++		c.Flags().StringVar(f.SortBy, "sort-by", *f.SortBy, "If non-empty, sort list types using this field specification.  The field specification is expressed as a JSONPath expression (e.g. '{.metadata.name}'). The field in the API resource specified by this JSONPath expression must be an integer or a string.")
++	}
++	if f.ColumnLabels != nil {
++		c.Flags().StringSliceVarP(f.ColumnLabels, "label-columns", "L", *f.ColumnLabels, "Accepts a comma separated list of labels that are going to be presented as columns. Names are case-sensitive. You can also use multiple flag options like -L label1 -L label2...")
++	}
++	if f.ShowKind != nil {
++		c.Flags().BoolVar(f.ShowKind, "show-kind", *f.ShowKind, "If present, list the resource type for the requested object(s).")
++	}
++}
++
++// newHumanPrintFlags returns flags associated with
++// human-readable printing, with default values set.
++func newHumanPrintFlags() *humanPrintFlags {
++	showLabels := false
++	sortBy := ""
++	showKind := false
++	columnLabels := []string{}
++
++	return &humanPrintFlags{
++		NoHeaders:     false,
++		WithNamespace: false,
++		ColumnLabels:  &columnLabels,
++
++		Kind:       schema.GroupKind{},
++		ShowLabels: &showLabels,
++		SortBy:     &sortBy,
++		ShowKind:   &showKind,
++	}
++}
+diff --git a/pkg/kube/pasturestack_table_printer.go b/pkg/kube/pasturestack_table_printer.go
+new file mode 100644
+index 0000000..31e8ef2
+--- /dev/null
++++ b/pkg/kube/pasturestack_table_printer.go
+@@ -0,0 +1,87 @@
++/*
++Copyright 2019 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package kube
++
++import (
++	"fmt"
++	"io"
++
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
++	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/cli-runtime/pkg/printers"
++	"k8s.io/klog"
++)
++
++// tablePrinter decodes table objects into typed objects before delegating to another printer.
++// Non-table types are simply passed through
++type tablePrinter struct {
++	Delegate printers.ResourcePrinter
++}
++
++func (t *tablePrinter) PrintObj(obj runtime.Object, writer io.Writer) error {
++	table, err := decodeIntoTable(obj)
++	if err == nil {
++		return t.Delegate.PrintObj(table, writer)
++	}
++	// if we are unable to decode server response into a v1beta1.Table,
++	// fallback to client-side printing with whatever info the server returned.
++	klog.V(2).Infof("Unable to decode server response into a Table. Falling back to hardcoded types: %v", err)
++	return t.Delegate.PrintObj(obj, writer)
++}
++
++func decodeIntoTable(obj runtime.Object) (runtime.Object, error) {
++	event, isEvent := obj.(*metav1.WatchEvent)
++	if isEvent {
++		obj = event.Object.Object
++	}
++
++	if obj.GetObjectKind().GroupVersionKind().Group != metav1beta1.GroupName {
++		return nil, fmt.Errorf("attempt to decode non-Table object into a v1beta1.Table")
++	}
++	if obj.GetObjectKind().GroupVersionKind().Kind != "Table" {
++		return nil, fmt.Errorf("attempt to decode non-Table object into a v1beta1.Table")
++	}
++
++	unstr, ok := obj.(*unstructured.Unstructured)
++	if !ok {
++		return nil, fmt.Errorf("attempt to decode non-Unstructured object")
++	}
++	table := &metav1beta1.Table{}
++	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, table); err != nil {
++		return nil, err
++	}
++
++	for i := range table.Rows {
++		row := &table.Rows[i]
++		if row.Object.Raw == nil || row.Object.Object != nil {
++			continue
++		}
++		converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, row.Object.Raw)
++		if err != nil {
++			return nil, err
++		}
++		row.Object.Object = converted
++	}
++
++	if isEvent {
++		event.Object.Object = table
++		return event, nil
++	}
++	return table, nil
++}
+diff --git a/pkg/kube/wait.go b/pkg/kube/wait.go
+index 16efb58..aecf6ac 100644
+--- a/pkg/kube/wait.go
++++ b/pkg/kube/wait.go
+@@ -29,7 +29,8 @@ import (
+ 	"k8s.io/apimachinery/pkg/labels"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/client-go/kubernetes"
+-	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
++	appsclient "k8s.io/client-go/kubernetes/typed/apps/v1"
++	deploymentutil "k8s.io/kubectl/pkg/util/deployment"
+ )
+ 
+ // deployment holds associated replicaSets for a deployment
+@@ -38,6 +39,33 @@ type deployment struct {
+ 	deployment  *appsv1.Deployment
+ }
+ 
++func getNewReplicaSet(deployment *appsv1.Deployment, client appsclient.AppsV1Interface) (*appsv1.ReplicaSet, error) {
++	_, _, newReplicaSet, err := deploymentutil.GetAllReplicaSets(deployment, client)
++	return newReplicaSet, err
++}
++
++func maxUnavailable(deployment appsv1.Deployment) int32 {
++	if deployment.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType ||
++		deployment.Spec.Replicas == nil ||
++		*deployment.Spec.Replicas == 0 ||
++		deployment.Spec.Strategy.RollingUpdate == nil {
++		return 0
++	}
++
++	_, unavailable, err := deploymentutil.ResolveFenceposts(
++		deployment.Spec.Strategy.RollingUpdate.MaxSurge,
++		deployment.Spec.Strategy.RollingUpdate.MaxUnavailable,
++		*deployment.Spec.Replicas,
++	)
++	if err != nil {
++		return 0
++	}
++	if unavailable > *deployment.Spec.Replicas {
++		return *deployment.Spec.Replicas
++	}
++	return unavailable
++}
++
+ // waitForResources polls to get the current status of all pods, PVCs, and Services
+ // until all are ready or a timeout is reached
+ func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+@@ -76,7 +104,7 @@ func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+ 					continue
+ 				}
+ 				// Find RS associated with deployment
+-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
++				newReplicaSet, err := getNewReplicaSet(currentDeployment, kcs.AppsV1())
+ 				if err != nil || newReplicaSet == nil {
+ 					return false, err
+ 				}
+@@ -95,7 +123,7 @@ func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+ 					continue
+ 				}
+ 				// Find RS associated with deployment
+-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
++				newReplicaSet, err := getNewReplicaSet(currentDeployment, kcs.AppsV1())
+ 				if err != nil || newReplicaSet == nil {
+ 					return false, err
+ 				}
+@@ -114,7 +142,7 @@ func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+ 					continue
+ 				}
+ 				// Find RS associated with deployment
+-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
++				newReplicaSet, err := getNewReplicaSet(currentDeployment, kcs.AppsV1())
+ 				if err != nil || newReplicaSet == nil {
+ 					return false, err
+ 				}
+@@ -133,7 +161,7 @@ func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+ 					continue
+ 				}
+ 				// Find RS associated with deployment
+-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
++				newReplicaSet, err := getNewReplicaSet(currentDeployment, kcs.AppsV1())
+ 				if err != nil || newReplicaSet == nil {
+ 					return false, err
+ 				}
+@@ -258,7 +286,7 @@ func (c *Client) volumesReady(vols []v1.PersistentVolumeClaim) bool {
+ 
+ func (c *Client) deploymentsReady(deployments []deployment) bool {
+ 	for _, v := range deployments {
+-		if !(v.replicaSets.Status.ReadyReplicas >= *v.deployment.Spec.Replicas-deploymentutil.MaxUnavailable(*v.deployment)) {
++		if !(v.replicaSets.Status.ReadyReplicas >= *v.deployment.Spec.Replicas-maxUnavailable(*v.deployment)) {
+ 			c.Log("Deployment is not ready: %s/%s", v.deployment.GetNamespace(), v.deployment.GetName())
+ 			return false
+ 		}
+diff --git a/pkg/pasturestack/printers/interface.go b/pkg/pasturestack/printers/interface.go
+new file mode 100644
+index 0000000..aa1e10c
+--- /dev/null
++++ b/pkg/pasturestack/printers/interface.go
+@@ -0,0 +1,54 @@
++/*
++Copyright 2017 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package printers
++
++import (
++	"io"
++
++	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++)
++
++// ResourcePrinter is an interface that knows how to print runtime objects.
++type ResourcePrinter interface {
++	// Print receives a runtime object, formats it and prints it to a writer.
++	PrintObj(runtime.Object, io.Writer) error
++}
++
++// ResourcePrinterFunc is a function that can print objects
++type ResourcePrinterFunc func(runtime.Object, io.Writer) error
++
++// PrintObj implements ResourcePrinter
++func (fn ResourcePrinterFunc) PrintObj(obj runtime.Object, w io.Writer) error {
++	return fn(obj, w)
++}
++
++// PrintOptions struct defines a struct for various print options
++type PrintOptions struct {
++	NoHeaders     bool
++	WithNamespace bool
++	WithKind      bool
++	Wide          bool
++	ShowLabels    bool
++	Kind          schema.GroupKind
++	ColumnLabels  []string
++
++	SortBy string
++
++	// indicates if it is OK to ignore missing keys for rendering an output template.
++	AllowMissingKeys bool
++}
+diff --git a/pkg/pasturestack/printers/tablegenerator.go b/pkg/pasturestack/printers/tablegenerator.go
+new file mode 100644
+index 0000000..f96239d
+--- /dev/null
++++ b/pkg/pasturestack/printers/tablegenerator.go
+@@ -0,0 +1,175 @@
++/*
++Copyright 2019 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package printers
++
++import (
++	"fmt"
++	"reflect"
++
++	"k8s.io/apimachinery/pkg/api/meta"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
++	"k8s.io/apimachinery/pkg/runtime"
++	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
++)
++
++// GenerateOptions encapsulates attributes for table generation.
++type GenerateOptions struct {
++	NoHeaders bool
++	Wide      bool
++}
++
++// TableGenerator - an interface for generating metav1beta1.Table provided a runtime.Object
++type TableGenerator interface {
++	GenerateTable(obj runtime.Object, options GenerateOptions) (*metav1beta1.Table, error)
++}
++
++// PrintHandler - interface to handle printing provided an array of metav1beta1.TableColumnDefinition
++type PrintHandler interface {
++	TableHandler(columns []metav1beta1.TableColumnDefinition, printFunc interface{}) error
++}
++
++type handlerEntry struct {
++	columnDefinitions []metav1beta1.TableColumnDefinition
++	printFunc         reflect.Value
++	args              []reflect.Value
++}
++
++// HumanReadableGenerator is an implementation of TableGenerator used to generate
++// a table for a specific resource. The table is printed with a TablePrinter using
++// PrintObj().
++type HumanReadableGenerator struct {
++	handlerMap map[reflect.Type]*handlerEntry
++}
++
++var _ TableGenerator = &HumanReadableGenerator{}
++var _ PrintHandler = &HumanReadableGenerator{}
++
++// NewTableGenerator creates a HumanReadableGenerator suitable for calling GenerateTable().
++func NewTableGenerator() *HumanReadableGenerator {
++	return &HumanReadableGenerator{
++		handlerMap: make(map[reflect.Type]*handlerEntry),
++	}
++}
++
++// With method - accepts a list of builder functions that modify HumanReadableGenerator
++func (h *HumanReadableGenerator) With(fns ...func(PrintHandler)) *HumanReadableGenerator {
++	for _, fn := range fns {
++		fn(h)
++	}
++	return h
++}
++
++// GenerateTable returns a table for the provided object, using the printer registered for that type. It returns
++// a table that includes all of the information requested by options, but will not remove rows or columns. The
++// caller is responsible for applying rules related to filtering rows or columns.
++func (h *HumanReadableGenerator) GenerateTable(obj runtime.Object, options GenerateOptions) (*metav1beta1.Table, error) {
++	t := reflect.TypeOf(obj)
++	handler, ok := h.handlerMap[t]
++	if !ok {
++		return nil, fmt.Errorf("no table handler registered for this type %v", t)
++	}
++
++	args := []reflect.Value{reflect.ValueOf(obj), reflect.ValueOf(options)}
++	results := handler.printFunc.Call(args)
++	if !results[1].IsNil() {
++		return nil, results[1].Interface().(error)
++	}
++
++	var columns []metav1beta1.TableColumnDefinition
++	if !options.NoHeaders {
++		columns = handler.columnDefinitions
++		if !options.Wide {
++			columns = make([]metav1beta1.TableColumnDefinition, 0, len(handler.columnDefinitions))
++			for i := range handler.columnDefinitions {
++				if handler.columnDefinitions[i].Priority != 0 {
++					continue
++				}
++				columns = append(columns, handler.columnDefinitions[i])
++			}
++		}
++	}
++	table := &metav1beta1.Table{
++		ListMeta: metav1.ListMeta{
++			ResourceVersion: "",
++		},
++		ColumnDefinitions: columns,
++		Rows:              results[0].Interface().([]metav1beta1.TableRow),
++	}
++	if m, err := meta.ListAccessor(obj); err == nil {
++		table.ResourceVersion = m.GetResourceVersion()
++		table.SelfLink = m.GetSelfLink()
++		table.Continue = m.GetContinue()
++		table.RemainingItemCount = m.GetRemainingItemCount()
++	} else {
++		if m, err := meta.CommonAccessor(obj); err == nil {
++			table.ResourceVersion = m.GetResourceVersion()
++			table.SelfLink = m.GetSelfLink()
++		}
++	}
++	return table, nil
++}
++
++// TableHandler adds a print handler with a given set of columns to HumanReadableGenerator instance.
++// See ValidateRowPrintHandlerFunc for required method signature.
++func (h *HumanReadableGenerator) TableHandler(columnDefinitions []metav1beta1.TableColumnDefinition, printFunc interface{}) error {
++	printFuncValue := reflect.ValueOf(printFunc)
++	if err := ValidateRowPrintHandlerFunc(printFuncValue); err != nil {
++		utilruntime.HandleError(fmt.Errorf("unable to register print function: %v", err))
++		return err
++	}
++	entry := &handlerEntry{
++		columnDefinitions: columnDefinitions,
++		printFunc:         printFuncValue,
++	}
++
++	objType := printFuncValue.Type().In(0)
++	if _, ok := h.handlerMap[objType]; ok {
++		err := fmt.Errorf("registered duplicate printer for %v", objType)
++		utilruntime.HandleError(err)
++		return err
++	}
++	h.handlerMap[objType] = entry
++	return nil
++}
++
++// ValidateRowPrintHandlerFunc validates print handler signature.
++// printFunc is the function that will be called to print an object.
++// It must be of the following type:
++//
++//	func printFunc(object ObjectType, options GenerateOptions) ([]metav1beta1.TableRow, error)
++//
++// where ObjectType is the type of the object that will be printed, and the first
++// return value is an array of rows, with each row containing a number of cells that
++// match the number of columns defined for that printer function.
++func ValidateRowPrintHandlerFunc(printFunc reflect.Value) error {
++	if printFunc.Kind() != reflect.Func {
++		return fmt.Errorf("invalid print handler. %#v is not a function", printFunc)
++	}
++	funcType := printFunc.Type()
++	if funcType.NumIn() != 2 || funcType.NumOut() != 2 {
++		return fmt.Errorf("invalid print handler." +
++			"Must accept 2 parameters and return 2 value.")
++	}
++	if funcType.In(1) != reflect.TypeOf((*GenerateOptions)(nil)).Elem() ||
++		funcType.Out(0) != reflect.TypeOf((*[]metav1beta1.TableRow)(nil)).Elem() ||
++		funcType.Out(1) != reflect.TypeOf((*error)(nil)).Elem() {
++		return fmt.Errorf("invalid print handler. The expected signature is: "+
++			"func handler(obj %v, options GenerateOptions) ([]metav1beta1.TableRow, error)", funcType.In(0))
++	}
++	return nil
++}
+diff --git a/pkg/pasturestack/printers/tableprinter.go b/pkg/pasturestack/printers/tableprinter.go
+new file mode 100644
+index 0000000..8f6f072
+--- /dev/null
++++ b/pkg/pasturestack/printers/tableprinter.go
+@@ -0,0 +1,574 @@
++/*
++Copyright 2019 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package printers
++
++import (
++	"fmt"
++	"io"
++	"reflect"
++	"strings"
++	"time"
++
++	"github.com/liggitt/tabwriter"
++	"k8s.io/apimachinery/pkg/api/meta"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	metav1beta1 "k8s.io/apimachinery/pkg/apis/meta/v1beta1"
++	"k8s.io/apimachinery/pkg/labels"
++	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apimachinery/pkg/util/duration"
++	"k8s.io/apimachinery/pkg/watch"
++)
++
++var _ ResourcePrinter = &HumanReadablePrinter{}
++
++type printHandler struct {
++	columnDefinitions []metav1beta1.TableColumnDefinition
++	printFunc         reflect.Value
++}
++
++var (
++	statusHandlerEntry = &printHandler{
++		columnDefinitions: statusColumnDefinitions,
++		printFunc:         reflect.ValueOf(printStatus),
++	}
++
++	statusColumnDefinitions = []metav1beta1.TableColumnDefinition{
++		{Name: "Status", Type: "string"},
++		{Name: "Reason", Type: "string"},
++		{Name: "Message", Type: "string"},
++	}
++
++	defaultHandlerEntry = &printHandler{
++		columnDefinitions: objectMetaColumnDefinitions,
++		printFunc:         reflect.ValueOf(printObjectMeta),
++	}
++
++	objectMetaColumnDefinitions = []metav1beta1.TableColumnDefinition{
++		{Name: "Name", Type: "string", Format: "name", Description: metav1.ObjectMeta{}.SwaggerDoc()["name"]},
++		{Name: "Age", Type: "string", Description: metav1.ObjectMeta{}.SwaggerDoc()["creationTimestamp"]},
++	}
++
++	withEventTypePrefixColumns = []string{"EVENT"}
++	withNamespacePrefixColumns = []string{"NAMESPACE"} // TODO(erictune): print cluster name too.
++)
++
++// HumanReadablePrinter is an implementation of ResourcePrinter which attempts to provide
++// more elegant output. It is not threadsafe, but you may call PrintObj repeatedly; headers
++// will only be printed if the object type changes. This makes it useful for printing items
++// received from watches.
++type HumanReadablePrinter struct {
++	options        PrintOptions
++	lastType       interface{}
++	lastColumns    []metav1beta1.TableColumnDefinition
++	printedHeaders bool
++}
++
++// NewTablePrinter creates a printer suitable for calling PrintObj().
++func NewTablePrinter(options PrintOptions) ResourcePrinter {
++	printer := &HumanReadablePrinter{
++		options: options,
++	}
++	return printer
++}
++
++func printHeader(columnNames []string, w io.Writer) error {
++	if _, err := fmt.Fprintf(w, "%s\n", strings.Join(columnNames, "\t")); err != nil {
++		return err
++	}
++	return nil
++}
++
++// PrintObj prints the obj in a human-friendly format according to the type of the obj.
++func (h *HumanReadablePrinter) PrintObj(obj runtime.Object, output io.Writer) error {
++
++	w, found := output.(*tabwriter.Writer)
++	if !found {
++		w = GetNewTabWriter(output)
++		output = w
++		defer w.Flush()
++	}
++
++	var eventType string
++	if event, isEvent := obj.(*metav1.WatchEvent); isEvent {
++		eventType = event.Type
++		obj = event.Object.Object
++	}
++
++	// Parameter "obj" is a table from server; print it.
++	// display tables following the rules of options
++	if table, ok := obj.(*metav1beta1.Table); ok {
++		// Do not print headers if this table has no column definitions, or they are the same as the last ones we printed
++		localOptions := h.options
++		if h.printedHeaders && (len(table.ColumnDefinitions) == 0 || reflect.DeepEqual(table.ColumnDefinitions, h.lastColumns)) {
++			localOptions.NoHeaders = true
++		}
++
++		if len(table.ColumnDefinitions) == 0 {
++			// If this table has no column definitions, use the columns from the last table we printed for decoration and layout.
++			// This is done when receiving tables in watch events to save bandwidth.
++			table.ColumnDefinitions = h.lastColumns
++		} else if !reflect.DeepEqual(table.ColumnDefinitions, h.lastColumns) {
++			// If this table has column definitions, remember them for future use.
++			h.lastColumns = table.ColumnDefinitions
++			h.printedHeaders = false
++		}
++
++		if len(table.Rows) > 0 {
++			h.printedHeaders = true
++		}
++
++		if err := decorateTable(table, localOptions); err != nil {
++			return err
++		}
++		if len(eventType) > 0 {
++			if err := addColumns(beginning, table,
++				[]metav1beta1.TableColumnDefinition{{Name: "Event", Type: "string"}},
++				[]cellValueFunc{func(metav1beta1.TableRow) (interface{}, error) { return formatEventType(eventType), nil }},
++			); err != nil {
++				return err
++			}
++		}
++		return printTable(table, output, localOptions)
++	}
++
++	// Could not find print handler for "obj"; use the default or status print handler.
++	// Print with the default or status handler, and use the columns from the last time
++	var handler *printHandler
++	if _, isStatus := obj.(*metav1.Status); isStatus {
++		handler = statusHandlerEntry
++	} else {
++		handler = defaultHandlerEntry
++	}
++
++	includeHeaders := h.lastType != handler && !h.options.NoHeaders
++
++	if h.lastType != nil && h.lastType != handler && !h.options.NoHeaders {
++		fmt.Fprintln(output)
++	}
++
++	if err := printRowsForHandlerEntry(output, handler, eventType, obj, h.options, includeHeaders); err != nil {
++		return err
++	}
++	h.lastType = handler
++
++	return nil
++}
++
++// printTable prints a table to the provided output respecting the filtering rules for options
++// for wide columns and filtered rows. It filters out rows that are Completed. You should call
++// decorateTable if you receive a table from a remote server before calling printTable.
++func printTable(table *metav1beta1.Table, output io.Writer, options PrintOptions) error {
++	if !options.NoHeaders {
++		// avoid printing headers if we have no rows to display
++		if len(table.Rows) == 0 {
++			return nil
++		}
++
++		first := true
++		for _, column := range table.ColumnDefinitions {
++			if !options.Wide && column.Priority != 0 {
++				continue
++			}
++			if first {
++				first = false
++			} else {
++				fmt.Fprint(output, "\t")
++			}
++			fmt.Fprint(output, strings.ToUpper(column.Name))
++		}
++		fmt.Fprintln(output)
++	}
++	for _, row := range table.Rows {
++		first := true
++		for i, cell := range row.Cells {
++			if i >= len(table.ColumnDefinitions) {
++				// https://issue.k8s.io/66379
++				// don't panic in case of bad output from the server, with more cells than column definitions
++				break
++			}
++			column := table.ColumnDefinitions[i]
++			if !options.Wide && column.Priority != 0 {
++				continue
++			}
++			if first {
++				first = false
++			} else {
++				fmt.Fprint(output, "\t")
++			}
++			if cell != nil {
++				fmt.Fprint(output, cell)
++			}
++		}
++		fmt.Fprintln(output)
++	}
++	return nil
++}
++
++type cellValueFunc func(metav1beta1.TableRow) (interface{}, error)
++
++type columnAddPosition int
++
++const (
++	beginning columnAddPosition = 1
++	end       columnAddPosition = 2
++)
++
++func addColumns(pos columnAddPosition, table *metav1beta1.Table, columns []metav1beta1.TableColumnDefinition, valueFuncs []cellValueFunc) error {
++	if len(columns) != len(valueFuncs) {
++		return fmt.Errorf("cannot prepend columns, unmatched value functions")
++	}
++	if len(columns) == 0 {
++		return nil
++	}
++
++	// Compute the new rows
++	newRows := make([][]interface{}, len(table.Rows))
++	for i := range table.Rows {
++		newCells := make([]interface{}, 0, len(columns)+len(table.Rows[i].Cells))
++
++		if pos == end {
++			// If we're appending, start with the existing cells,
++			// then add nil cells to match the number of columns
++			newCells = append(newCells, table.Rows[i].Cells...)
++			for len(newCells) < len(table.ColumnDefinitions) {
++				newCells = append(newCells, nil)
++			}
++		}
++
++		// Compute cells for new columns
++		for _, f := range valueFuncs {
++			newCell, err := f(table.Rows[i])
++			if err != nil {
++				return err
++			}
++			newCells = append(newCells, newCell)
++		}
++
++		if pos == beginning {
++			// If we're prepending, add existing cells
++			newCells = append(newCells, table.Rows[i].Cells...)
++		}
++
++		// Remember the new cells for this row
++		newRows[i] = newCells
++	}
++
++	// All cells successfully computed, now replace columns and rows
++	newColumns := make([]metav1beta1.TableColumnDefinition, 0, len(columns)+len(table.ColumnDefinitions))
++	switch pos {
++	case beginning:
++		newColumns = append(newColumns, columns...)
++		newColumns = append(newColumns, table.ColumnDefinitions...)
++	case end:
++		newColumns = append(newColumns, table.ColumnDefinitions...)
++		newColumns = append(newColumns, columns...)
++	default:
++		return fmt.Errorf("invalid column add position: %v", pos)
++	}
++	table.ColumnDefinitions = newColumns
++	for i := range table.Rows {
++		table.Rows[i].Cells = newRows[i]
++	}
++
++	return nil
++}
++
++// decorateTable takes a table and attempts to add label columns and the
++// namespace column. It will fill empty columns with nil (if the object
++// does not expose metadata). It returns an error if the table cannot
++// be decorated.
++func decorateTable(table *metav1beta1.Table, options PrintOptions) error {
++	width := len(table.ColumnDefinitions) + len(options.ColumnLabels)
++	if options.WithNamespace {
++		width++
++	}
++	if options.ShowLabels {
++		width++
++	}
++
++	columns := table.ColumnDefinitions
++
++	nameColumn := -1
++	if options.WithKind && !options.Kind.Empty() {
++		for i := range columns {
++			if columns[i].Format == "name" && columns[i].Type == "string" {
++				nameColumn = i
++				break
++			}
++		}
++	}
++
++	if width != len(table.ColumnDefinitions) {
++		columns = make([]metav1beta1.TableColumnDefinition, 0, width)
++		if options.WithNamespace {
++			columns = append(columns, metav1beta1.TableColumnDefinition{
++				Name: "Namespace",
++				Type: "string",
++			})
++		}
++		columns = append(columns, table.ColumnDefinitions...)
++		for _, label := range formatLabelHeaders(options.ColumnLabels) {
++			columns = append(columns, metav1beta1.TableColumnDefinition{
++				Name: label,
++				Type: "string",
++			})
++		}
++		if options.ShowLabels {
++			columns = append(columns, metav1beta1.TableColumnDefinition{
++				Name: "Labels",
++				Type: "string",
++			})
++		}
++	}
++
++	rows := table.Rows
++
++	includeLabels := len(options.ColumnLabels) > 0 || options.ShowLabels
++	if includeLabels || options.WithNamespace || nameColumn != -1 {
++		for i := range rows {
++			row := rows[i]
++
++			if nameColumn != -1 {
++				row.Cells[nameColumn] = fmt.Sprintf("%s/%s", strings.ToLower(options.Kind.String()), row.Cells[nameColumn])
++			}
++
++			var m metav1.Object
++			if obj := row.Object.Object; obj != nil {
++				if acc, err := meta.Accessor(obj); err == nil {
++					m = acc
++				}
++			}
++			// if we can't get an accessor, fill out the appropriate columns with empty spaces
++			if m == nil {
++				if options.WithNamespace {
++					r := make([]interface{}, 1, width)
++					row.Cells = append(r, row.Cells...)
++				}
++				for j := 0; j < width-len(row.Cells); j++ {
++					row.Cells = append(row.Cells, nil)
++				}
++				rows[i] = row
++				continue
++			}
++
++			if options.WithNamespace {
++				r := make([]interface{}, 1, width)
++				r[0] = m.GetNamespace()
++				row.Cells = append(r, row.Cells...)
++			}
++			if includeLabels {
++				row.Cells = appendLabelCells(row.Cells, m.GetLabels(), options)
++			}
++			rows[i] = row
++		}
++	}
++
++	table.ColumnDefinitions = columns
++	table.Rows = rows
++	return nil
++}
++
++// printRowsForHandlerEntry prints the incremental table output (headers if the current type is
++// different from lastType) including all the rows in the object. It returns the current type
++// or an error, if any.
++func printRowsForHandlerEntry(output io.Writer, handler *printHandler, eventType string, obj runtime.Object, options PrintOptions, includeHeaders bool) error {
++	var results []reflect.Value
++
++	args := []reflect.Value{reflect.ValueOf(obj), reflect.ValueOf(options)}
++	results = handler.printFunc.Call(args)
++	if !results[1].IsNil() {
++		return results[1].Interface().(error)
++	}
++
++	if includeHeaders {
++		var headers []string
++		for _, column := range handler.columnDefinitions {
++			if column.Priority != 0 && !options.Wide {
++				continue
++			}
++			headers = append(headers, strings.ToUpper(column.Name))
++		}
++		headers = append(headers, formatLabelHeaders(options.ColumnLabels)...)
++		// LABELS is always the last column.
++		headers = append(headers, formatShowLabelsHeader(options.ShowLabels)...)
++		// prepend namespace header
++		if options.WithNamespace {
++			headers = append(withNamespacePrefixColumns, headers...)
++		}
++		// prepend event type header
++		if len(eventType) > 0 {
++			headers = append(withEventTypePrefixColumns, headers...)
++		}
++		printHeader(headers, output)
++	}
++
++	if results[1].IsNil() {
++		rows := results[0].Interface().([]metav1beta1.TableRow)
++		printRows(output, eventType, rows, options)
++		return nil
++	}
++	return results[1].Interface().(error)
++}
++
++var formattedEventType = map[string]string{
++	string(watch.Added):    "ADDED   ",
++	string(watch.Modified): "MODIFIED",
++	string(watch.Deleted):  "DELETED ",
++	string(watch.Error):    "ERROR   ",
++}
++
++func formatEventType(eventType string) string {
++	if formatted, ok := formattedEventType[eventType]; ok {
++		return formatted
++	}
++	return string(eventType)
++}
++
++// printRows writes the provided rows to output.
++func printRows(output io.Writer, eventType string, rows []metav1beta1.TableRow, options PrintOptions) {
++	for _, row := range rows {
++		if len(eventType) > 0 {
++			fmt.Fprint(output, formatEventType(eventType))
++			fmt.Fprint(output, "\t")
++		}
++		if options.WithNamespace {
++			if obj := row.Object.Object; obj != nil {
++				if m, err := meta.Accessor(obj); err == nil {
++					fmt.Fprint(output, m.GetNamespace())
++				}
++			}
++			fmt.Fprint(output, "\t")
++		}
++
++		for i, cell := range row.Cells {
++			if i != 0 {
++				fmt.Fprint(output, "\t")
++			} else {
++				// TODO: remove this once we drop the legacy printers
++				if options.WithKind && !options.Kind.Empty() {
++					fmt.Fprintf(output, "%s/%s", strings.ToLower(options.Kind.String()), cell)
++					continue
++				}
++			}
++			fmt.Fprint(output, cell)
++		}
++
++		hasLabels := len(options.ColumnLabels) > 0
++		if obj := row.Object.Object; obj != nil && (hasLabels || options.ShowLabels) {
++			if m, err := meta.Accessor(obj); err == nil {
++				for _, value := range labelValues(m.GetLabels(), options) {
++					output.Write([]byte("\t"))
++					output.Write([]byte(value))
++				}
++			}
++		}
++
++		output.Write([]byte("\n"))
++	}
++}
++
++func formatLabelHeaders(columnLabels []string) []string {
++	formHead := make([]string, len(columnLabels))
++	for i, l := range columnLabels {
++		p := strings.Split(l, "/")
++		formHead[i] = strings.ToUpper((p[len(p)-1]))
++	}
++	return formHead
++}
++
++// headers for --show-labels=true
++func formatShowLabelsHeader(showLabels bool) []string {
++	if showLabels {
++		return []string{"LABELS"}
++	}
++	return nil
++}
++
++// labelValues returns a slice of value columns matching the requested print options.
++func labelValues(itemLabels map[string]string, opts PrintOptions) []string {
++	var values []string
++	for _, key := range opts.ColumnLabels {
++		values = append(values, itemLabels[key])
++	}
++	if opts.ShowLabels {
++		values = append(values, labels.FormatLabels(itemLabels))
++	}
++	return values
++}
++
++// appendLabelCells returns a slice of value columns matching the requested print options.
++// Intended for use with tables.
++func appendLabelCells(values []interface{}, itemLabels map[string]string, opts PrintOptions) []interface{} {
++	for _, key := range opts.ColumnLabels {
++		values = append(values, itemLabels[key])
++	}
++	if opts.ShowLabels {
++		values = append(values, labels.FormatLabels(itemLabels))
++	}
++	return values
++}
++
++func printStatus(obj runtime.Object, options PrintOptions) ([]metav1beta1.TableRow, error) {
++	status, ok := obj.(*metav1.Status)
++	if !ok {
++		return nil, fmt.Errorf("expected *v1.Status, got %T", obj)
++	}
++	return []metav1beta1.TableRow{{
++		Object: runtime.RawExtension{Object: obj},
++		Cells:  []interface{}{status.Status, status.Reason, status.Message},
++	}}, nil
++}
++
++func printObjectMeta(obj runtime.Object, options PrintOptions) ([]metav1beta1.TableRow, error) {
++	if meta.IsListType(obj) {
++		rows := make([]metav1beta1.TableRow, 0, 16)
++		err := meta.EachListItem(obj, func(obj runtime.Object) error {
++			nestedRows, err := printObjectMeta(obj, options)
++			if err != nil {
++				return err
++			}
++			rows = append(rows, nestedRows...)
++			return nil
++		})
++		if err != nil {
++			return nil, err
++		}
++		return rows, nil
++	}
++
++	rows := make([]metav1beta1.TableRow, 0, 1)
++	m, err := meta.Accessor(obj)
++	if err != nil {
++		return nil, err
++	}
++	row := metav1beta1.TableRow{
++		Object: runtime.RawExtension{Object: obj},
++	}
++	row.Cells = append(row.Cells, m.GetName(), translateTimestampSince(m.GetCreationTimestamp()))
++	rows = append(rows, row)
++	return rows, nil
++}
++
++// translateTimestampSince returns the elapsed time since timestamp in
++// human-readable approximation.
++func translateTimestampSince(timestamp metav1.Time) string {
++	if timestamp.IsZero() {
++		return "<unknown>"
++	}
++
++	return duration.HumanDuration(time.Since(timestamp.Time))
++}
+diff --git a/pkg/pasturestack/printers/tabwriter.go b/pkg/pasturestack/printers/tabwriter.go
+new file mode 100644
+index 0000000..21d60e1
+--- /dev/null
++++ b/pkg/pasturestack/printers/tabwriter.go
+@@ -0,0 +1,36 @@
++/*
++Copyright 2017 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package printers
++
++import (
++	"io"
++
++	"github.com/liggitt/tabwriter"
++)
++
++const (
++	tabwriterMinWidth = 6
++	tabwriterWidth    = 4
++	tabwriterPadding  = 3
++	tabwriterPadChar  = ' '
++	tabwriterFlags    = tabwriter.RememberWidths
++)
++
++// GetNewTabWriter returns a tabwriter that translates tabbed columns in input into properly aligned text.
++func GetNewTabWriter(output io.Writer) *tabwriter.Writer {
++	return tabwriter.NewWriter(output, tabwriterMinWidth, tabwriterWidth, tabwriterPadding, tabwriterPadChar, tabwriterFlags)
++}
+diff --git a/pkg/pasturestack/shims/docker-term/go.mod b/pkg/pasturestack/shims/docker-term/go.mod
+new file mode 100644
+index 0000000..1cc402e
+--- /dev/null
++++ b/pkg/pasturestack/shims/docker-term/go.mod
+@@ -0,0 +1,5 @@
++module github.com/docker/docker
++
++go 1.24.0
++
++require github.com/moby/term v0.5.2
+diff --git a/pkg/pasturestack/shims/docker-term/pkg/term/term.go b/pkg/pasturestack/shims/docker-term/pkg/term/term.go
+new file mode 100644
+index 0000000..84b6f45
+--- /dev/null
++++ b/pkg/pasturestack/shims/docker-term/pkg/term/term.go
+@@ -0,0 +1,32 @@
++/*
++Copyright The PastureStack Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package term
++
++import mobyterm "github.com/moby/term"
++
++type State = mobyterm.State
++type Winsize = mobyterm.Winsize
++
++var (
++	GetFdInfo       = mobyterm.GetFdInfo
++	GetWinsize      = mobyterm.GetWinsize
++	IsTerminal      = mobyterm.IsTerminal
++	MakeRaw         = mobyterm.MakeRaw
++	RestoreTerminal = mobyterm.RestoreTerminal
++	SaveState       = mobyterm.SaveState
++	StdStreams      = mobyterm.StdStreams
++)
+diff --git a/pkg/tiller/server.go b/pkg/tiller/server.go
+index 0fbcd45..4eaea6c 100644
+--- a/pkg/tiller/server.go
++++ b/pkg/tiller/server.go
+@@ -21,7 +21,6 @@ import (
+ 	"log"
+ 	"strings"
+ 
+-	goprom "github.com/grpc-ecosystem/go-grpc-prometheus"
+ 	"golang.org/x/net/context"
+ 	"google.golang.org/grpc"
+ 	"google.golang.org/grpc/metadata"
+@@ -57,7 +56,7 @@ func newUnaryInterceptor() grpc.UnaryServerInterceptor {
+ 				return nil, err
+ 			}
+ 		}
+-		return goprom.UnaryServerInterceptor(ctx, req, info, handler)
++		return handler(ctx, req)
+ 	}
+ }
+ 
+@@ -67,7 +66,7 @@ func newStreamInterceptor() grpc.StreamServerInterceptor {
+ 			log.Println(err)
+ 			return err
+ 		}
+-		return goprom.StreamServerInterceptor(srv, ss, info, handler)
++		return handler(srv, ss)
+ 	}
+ }
+ 

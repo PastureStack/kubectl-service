@@ -6,15 +6,15 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/rancher/kubectld/cli"
+	"github.com/PastureStack/kubectl-service/cli"
+	log "github.com/sirupsen/logrus"
 )
 
-func ListReleases() ([]Release, error) {
+func listReleasesLegacyHelm2() ([]Release, error) {
 	args := []string{"ls"}
-	output := cli.Execute(cmd, args...)
+	output := runCommand(legacyHelm2Command, args...)
 	if output.ExitCode > 0 {
-		return nil, &cli.ErrExec{output}
+		return nil, &cli.ErrExec{Output: output}
 	}
 	if output.Err != nil {
 		return nil, output.Err
@@ -26,7 +26,7 @@ func ListReleases() ([]Release, error) {
 		if len(line) == 0 {
 			continue
 		}
-		parseableString := strings.Map(stripContiguousSpaces, line)
+		parseableString := collapseContiguousSpaces(line)
 		parseableString = strings.TrimSpace(parseableString)
 		parts := strings.Split(parseableString, " ")
 		if len(parts) == 5 {

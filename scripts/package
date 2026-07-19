@@ -1,16 +1,44 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 source $(dirname $0)/version
 
 cd $(dirname $0)/../package
 
 TAG=${TAG:-${VERSION}}
-REPO=${REPO:-rancher}
+REPO=${REPO:-pasturestack}
+IMAGE_REPOSITORY=${IMAGE_NAME:-${REPO}/kubectl-service}
+if [[ "${IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    IMAGE="${IMAGE_REPOSITORY}"
+else
+    IMAGE="${IMAGE_REPOSITORY}:${TAG}"
+fi
 
-cp ../bin/kubectld .
+cp ../bin/kubectl-service .
+cp ../LICENSE .
+cp ../SECURITY.md .
+cp ../ORIGIN.md .
+cp ../COMPATIBILITY.md .
+cp ../HELM_PATCH_ORIGIN.md .
 
-IMAGE=${REPO}/kubectld:${TAG}
-docker build -t ${IMAGE} .
+build_args=()
+for arg in UBUNTU_MIRROR KUBERNETES_VERSION KUBERNETES_SERVER_SHA256 GO_VERSION GO_SHA256_amd64 HELM_VERSION HELM_GIT_COMMIT HELM_PATCH_SHA256; do
+    value="${!arg:-}"
+    if [ -n "${value}" ]; then
+        build_args+=(--build-arg "${arg}=${value}")
+    fi
+done
+build_args+=(--build-arg "IMAGE_VERSION=${TAG}")
+if [ -n "${DOCKER_BUILD_NETWORK:-}" ]; then
+    build_args+=(--network "${DOCKER_BUILD_NETWORK}")
+fi
+
+docker build "${build_args[@]}" -t "${IMAGE}" .
+
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" version --client
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" init -c
+docker run --rm --entrypoint /usr/bin/kubectl "${IMAGE}" version --client=true --short=true
+
+mkdir -p ../dist
 echo ${IMAGE} > ../dist/images
 echo Built ${IMAGE}
