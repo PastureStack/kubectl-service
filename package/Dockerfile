@@ -43,7 +43,7 @@ RUN set -eux; \
     git config --system --add safe.directory '*'; \
     go version
 
-ARG HELM_PATCH_SHA256=933202a5c7d168fa668d0d8727309489f40a76117f22f770926bfbf9142008b1
+ARG HELM_PATCH_SHA256=3bdf5475025db4d76afad26272f4848b2604c6e0e547b3aaf8243b48e16a9735
 
 COPY helm-v2.17.0.go.mod /tmp/helm-lock/test.go.mod
 COPY helm-v2.17.0.go.sum /tmp/helm-lock/test.go.sum
@@ -71,6 +71,13 @@ RUN set -eux; \
         pkg/kube/pasturestack_table_printer.go \
         pkg/pasturestack/printers)"; \
     go test ./pkg/kube ./pkg/pasturestack/printers; \
+    CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags "-s -w -X k8s.io/helm/pkg/version.Version=${HELM_VERSION} -X k8s.io/helm/pkg/version.GitCommit=${HELM_GIT_COMMIT} -X k8s.io/helm/pkg/version.BuildMetadata=pasturestack-go${GO_VERSION}" \
+        -o /out/tiller ./cmd/tiller; \
+    cp LICENSE /out/HELM-LICENSE; \
+    ! go version -m /out/tiller | grep -Fq 'github.com/dgrijalva/jwt-go'; \
+    go version -m /out/tiller | grep -F 'github.com/prometheus/client_golang' | grep -Fq 'v1.24.1'; \
+    /out/tiller --version; \
     cp /tmp/helm-lock/client.go.mod ./go.mod; \
     cp /tmp/helm-lock/client.go.sum ./go.sum; \
     go mod download; \
@@ -91,6 +98,46 @@ RUN set -eux; \
         /tmp/go-mod-cache \
         /tmp/helm-home \
         /root/.cache
+
+FROM ubuntu:26.04 AS tiller-runtime
+
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
+ARG TILLER_IMAGE_VERSION=v2.17.0-pasturestack.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    HOME=/home/pasturestack-tiller \
+    TILLER_NAMESPACE=kube-system
+
+RUN set -eux; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+        -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" {} +; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -f /usr/bin/pebble; \
+    groupadd --gid 10001 pasturestack-tiller; \
+    useradd --uid 10001 --gid 10001 --home-dir /home/pasturestack-tiller --shell /usr/sbin/nologin pasturestack-tiller; \
+    install -d -o 10001 -g 10001 /home/pasturestack-tiller /licenses
+
+COPY --from=helm2-builder /out/tiller /usr/local/bin/tiller
+COPY --from=helm2-builder /out/HELM-LICENSE /licenses/HELM-LICENSE
+
+RUN chmod 0555 /usr/local/bin/tiller && chmod 0444 /licenses/HELM-LICENSE
+
+USER 10001:10001
+
+EXPOSE 44134 44135
+
+LABEL org.opencontainers.image.title="pasturestack-tiller-compat" \
+      org.opencontainers.image.description="PastureStack Helm 2.17 Tiller compatibility runtime" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://github.com/PastureStack/kubectl-service" \
+      org.opencontainers.image.version="${TILLER_IMAGE_VERSION}" \
+      io.pasturestack.compatibility="helm2"
+
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/tiller"]
 
 FROM ubuntu:26.04 AS kubectl-extractor
 

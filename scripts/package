@@ -8,10 +8,17 @@ cd $(dirname $0)/../package
 TAG=${TAG:-${VERSION}}
 REPO=${REPO:-pasturestack}
 IMAGE_REPOSITORY=${IMAGE_NAME:-${REPO}/kubectl-service}
+TILLER_TAG=${TILLER_TAG:-v2.17.0-pasturestack.1}
+TILLER_IMAGE_REPOSITORY=${TILLER_IMAGE_NAME:-${REPO}/tiller}
 if [[ "${IMAGE_REPOSITORY##*/}" == *:* ]]; then
     IMAGE="${IMAGE_REPOSITORY}"
 else
     IMAGE="${IMAGE_REPOSITORY}:${TAG}"
+fi
+if [[ "${TILLER_IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}"
+else
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}:${TILLER_TAG}"
 fi
 
 cp ../bin/kubectl-service .
@@ -34,11 +41,18 @@ if [ -n "${DOCKER_BUILD_NETWORK:-}" ]; then
 fi
 
 docker build "${build_args[@]}" -t "${IMAGE}" .
+docker build "${build_args[@]}" \
+    --build-arg "TILLER_IMAGE_VERSION=${TILLER_TAG}" \
+    --target tiller-runtime \
+    -t "${TILLER_IMAGE}" .
 
 docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" version --client
 docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" init -c
 docker run --rm --entrypoint /usr/bin/kubectl "${IMAGE}" version --client=true --short=true
+docker run --rm "${TILLER_IMAGE}" --version
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{.Config.User}}')" = "10001:10001"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/PastureStack/kubectl-service"
 
 mkdir -p ../dist
-echo ${IMAGE} > ../dist/images
-echo Built ${IMAGE}
+printf '%s\n%s\n' "${IMAGE}" "${TILLER_IMAGE}" > ../dist/images
+echo Built ${IMAGE} and ${TILLER_IMAGE}

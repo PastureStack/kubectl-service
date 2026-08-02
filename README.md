@@ -8,9 +8,9 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-The maintained compatibility candidate uses Ubuntu 26.04, Go 1.26.5, the checksum-verified Kubernetes 1.12.10 kubectl binary, and a Helm 2 client rebuilt from the pinned source revision with committed test and runtime module locks. The packaging patch removes unnecessary broad dependencies from the Helm client while preserving its table output, deployment-wait behavior, and Tiller protocol. Path validation, bounded HTTP, and log-redaction protections are retained. CI/CD remains disabled while the complete Kubernetes catalog stack is integration-gated.
+The maintained compatibility candidate is `ghcr.io/pasturestack/kubectl-service:v0.9.11-pasturestack.2`. It uses Ubuntu 26.04, Go 1.26.5, the checksum-verified Kubernetes 1.12.10 kubectl binary, and Helm 2 client and Tiller binaries rebuilt from the pinned source revision with committed module locks. The packaging patch removes unnecessary broad dependencies while preserving table output, deployment-wait behavior, release storage, metrics, and the Tiller protocol. The Tiller image runs as UID/GID 10001 and is intended for a read-only root filesystem with all Linux capabilities dropped by the Kubernetes package. Path validation, bounded HTTP, and log-redaction protections are retained. CI/CD remains disabled while the complete Kubernetes catalog stack is integration-gated.
 
-Helm 2 remains a deliberate compatibility boundary and is not a recommendation for new deployments. Replacing it with Helm 3 requires a separate release-storage and Tiller-removal migration.
+Helm 2 remains a deliberate compatibility boundary and is not a recommendation for new deployments. The compatibility image is versioned `v2.17.0-pasturestack.1`; replacing it with Helm 3 requires a separate release-storage and Tiller-removal migration.
 
 ## Configuration
 

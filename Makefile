@@ -24,6 +24,8 @@ $(TARGETS): dapper-image
 		-e DAPPER_GID=$$(id -g) \
 		-e ARCH=$(DAPPER_HOST_ARCH) \
 		-e IMAGE_NAME \
+		-e TILLER_IMAGE_NAME \
+		-e TILLER_TAG \
 		-e TAG \
 		-e VERSION_OVERRIDE \
 		-e DOCKER_BUILD_NETWORK \

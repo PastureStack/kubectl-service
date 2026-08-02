@@ -10,6 +10,18 @@ index da648d5..fabd894 100644
  
  	"k8s.io/helm/pkg/helm"
  	helm_env "k8s.io/helm/pkg/helm/environment"
+diff --git a/cmd/tiller/tiller.go b/cmd/tiller/tiller.go
+index 19aa157..1014270 100644
+--- a/cmd/tiller/tiller.go
++++ b/cmd/tiller/tiller.go
+@@ -39,7 +39,6 @@ import (
+ 	"k8s.io/klog"
+ 
+ 	// Import to initialize client auth plugins.
+-	_ "k8s.io/client-go/plugin/pkg/client/auth"
+ 
+ 	"k8s.io/helm/pkg/kube"
+ 	"k8s.io/helm/pkg/proto/hapi/services"
 diff --git a/pkg/kube/client.go b/pkg/kube/client.go
 index ac6bd5e..5bc84cf 100644
 --- a/pkg/kube/client.go
