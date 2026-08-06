@@ -2,4 +2,4 @@
 ./.dapper
 ./dist
 ./.trash-cache
-./package/kubectld
+./package/kubectl-service

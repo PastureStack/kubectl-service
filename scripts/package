@@ -1,16 +1,81 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-source $(dirname $0)/version
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
+source "$repo_root/scripts/version"
 
-cd $(dirname $0)/../package
+if [ -z "${SOURCE_REVISION:-}" ]; then
+    SOURCE_REVISION=$(git -C "$repo_root" rev-parse HEAD)
+    if [ -n "$(git -C "$repo_root" status --porcelain)" ]; then
+        SOURCE_REVISION="${SOURCE_REVISION}-dirty"
+    fi
+fi
+if ! [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}(-dirty)?$ ]]; then
+    echo "SOURCE_REVISION must be a full Git commit, optionally suffixed with -dirty for a local candidate" >&2
+    exit 1
+fi
+
+cd "$repo_root/package"
 
 TAG=${TAG:-${VERSION}}
-REPO=${REPO:-rancher}
+REPO=${REPO:-pasturestack}
+IMAGE_REPOSITORY=${IMAGE_NAME:-${REPO}/kubectl-service}
+TILLER_TAG=${TILLER_TAG:-v2.17.0-pasturestack.2}
+TILLER_IMAGE_REPOSITORY=${TILLER_IMAGE_NAME:-${REPO}/tiller}
+if [[ "${IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    IMAGE="${IMAGE_REPOSITORY}"
+else
+    IMAGE="${IMAGE_REPOSITORY}:${TAG}"
+fi
+if [[ "${TILLER_IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}"
+else
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}:${TILLER_TAG}"
+fi
 
-cp ../bin/kubectld .
+cp ../bin/kubectl-service .
+cp ../LICENSE .
+cp ../SECURITY.md .
+cp ../ORIGIN.md .
+cp ../COMPATIBILITY.md .
+cp ../HELM_PATCH_ORIGIN.md .
+cp ../MIGRATION.md .
+cp ../migration/targets.lock.env .
+cp ../migration/kubernetes-upgrade-path.tsv .
 
-IMAGE=${REPO}/kubectld:${TAG}
-docker build -t ${IMAGE} .
-echo ${IMAGE} > ../dist/images
-echo Built ${IMAGE}
+build_args=()
+for arg in UBUNTU_MIRROR KUBERNETES_VERSION KUBERNETES_SERVER_SHA256 GO_VERSION GO_SHA256_amd64 HELM_VERSION HELM_GIT_COMMIT HELM_PATCH_SHA256; do
+    value="${!arg:-}"
+    if [ -n "${value}" ]; then
+        build_args+=(--build-arg "${arg}=${value}")
+    fi
+done
+build_args+=(--build-arg "SOURCE_REVISION=${SOURCE_REVISION}")
+if [ -n "${DOCKER_BUILD_NETWORK:-}" ]; then
+    build_args+=(--network "${DOCKER_BUILD_NETWORK}")
+fi
+
+docker build "${build_args[@]}" \
+    --build-arg "IMAGE_VERSION=${TAG}" \
+    -t "${IMAGE}" .
+docker build "${build_args[@]}" \
+    --build-arg "TILLER_IMAGE_VERSION=${TILLER_TAG}" \
+    --target tiller-runtime \
+    -t "${TILLER_IMAGE}" .
+
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" version --client
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" init -c
+docker run --rm --entrypoint /usr/bin/kubectl "${IMAGE}" version --client=true --short=true
+docker run --rm "${TILLER_IMAGE}" --version
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{.Config.User}}')" = "10001:10001"
+for image in "${IMAGE}" "${TILLER_IMAGE}"; do
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/PastureStack/kubectl-service"
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "${SOURCE_REVISION}"
+done
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TAG}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TILLER_TAG}"
+
+mkdir -p ../dist
+printf '%s\n%s\n' "${IMAGE}" "${TILLER_IMAGE}" > ../dist/images
+echo "Built ${IMAGE} and ${TILLER_IMAGE} from ${SOURCE_REVISION}"
