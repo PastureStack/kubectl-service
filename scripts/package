@@ -1,16 +1,281 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-source $(dirname $0)/version
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
+source "$repo_root/scripts/version"
+# shellcheck disable=SC1091
+source "$repo_root/migration/targets.lock.env"
+# shellcheck disable=SC1091
+source "$repo_root/package/ubuntu-apt.lock"
 
-cd $(dirname $0)/../package
+if [ -z "${SOURCE_REVISION:-}" ]; then
+    SOURCE_REVISION=$(git -C "$repo_root" rev-parse HEAD)
+    if [ -n "$(git -C "$repo_root" status --porcelain)" ]; then
+        SOURCE_REVISION="${SOURCE_REVISION}-dirty"
+    fi
+fi
+if ! [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}(-dirty)?$ ]]; then
+    echo "SOURCE_REVISION must be a full Git commit, optionally suffixed with -dirty for a local candidate" >&2
+    exit 1
+fi
+
+cd "$repo_root/package"
 
 TAG=${TAG:-${VERSION}}
-REPO=${REPO:-rancher}
+REPO=${REPO:-pasturestack}
+IMAGE_REPOSITORY=${IMAGE_NAME:-${REPO}/kubectl-service}
+TILLER_TAG=${TILLER_TAG:-v2.17.1}
+TILLER_IMAGE_REPOSITORY=${TILLER_IMAGE_NAME:-${REPO}/tiller}
+HELM_MIGRATION_TAG=${HELM_MIGRATION_TAG:-v0.11.1}
+HELM_MIGRATION_IMAGE_REPOSITORY=${HELM_MIGRATION_IMAGE_NAME:-${REPO}/helm-migration-tools}
+for artifact_tag in "$TAG" "$TILLER_TAG" "$HELM_MIGRATION_TAG"; do
+    if ! [[ "$artifact_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Artifact tags must use numeric SemVer only (vMAJOR.MINOR.PATCH): $artifact_tag" >&2
+        exit 1
+    fi
+done
+if [[ "${IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    IMAGE="${IMAGE_REPOSITORY}"
+else
+    IMAGE="${IMAGE_REPOSITORY}:${TAG}"
+fi
+if [[ "${TILLER_IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}"
+else
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}:${TILLER_TAG}"
+fi
+if [[ "${HELM_MIGRATION_IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    HELM_MIGRATION_IMAGE="${HELM_MIGRATION_IMAGE_REPOSITORY}"
+else
+    HELM_MIGRATION_IMAGE="${HELM_MIGRATION_IMAGE_REPOSITORY}:${HELM_MIGRATION_TAG}"
+fi
 
-cp ../bin/kubectld .
+cp ../bin/kubectl-service .
+cp ../LICENSE .
+cp ../SECURITY.md .
+cp ../ORIGIN.md .
+cp ../COMPATIBILITY.md .
+cp ../HELM_PATCH_ORIGIN.md .
+cp ../MIGRATION.md .
+cp ../migration/targets.lock.env .
+cp ../migration/kubernetes-upgrade-path.tsv .
 
-IMAGE=${REPO}/kubectld:${TAG}
-docker build -t ${IMAGE} .
-echo ${IMAGE} > ../dist/images
-echo Built ${IMAGE}
+build_args=()
+for arg in \
+    KUBERNETES_SOURCE_VERSION \
+    KUBERNETES_SERVER_SHA512 \
+    GO_VERSION \
+    GO_SHA256_amd64 \
+    HELM_VERSION \
+    HELM_BUILD_VERSION \
+    HELM_GIT_COMMIT \
+    HELM_PATCH_SHA256 \
+    HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256 \
+    TILLER_REBUILT_LINUX_AMD64_SHA256 \
+    HELM3_BRIDGE_VERSION \
+    HELM3_BRIDGE_BUILD_VERSION \
+    HELM3_BRIDGE_GIT_COMMIT \
+    HELM3_BRIDGE_SOURCE_SHA256 \
+    HELM3_BRIDGE_LICENSE_SHA256 \
+    HELM3_BRIDGE_APPLIED_PATCH_SHA256 \
+    HELM3_BRIDGE_ORAS_GO_VERSION \
+    HELM3_BRIDGE_X_TEXT_VERSION \
+    HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256 \
+    HELM2TO3_VERSION \
+    HELM2TO3_BUILD_VERSION \
+    HELM2TO3_GIT_COMMIT \
+    HELM2TO3_SOURCE_SHA256 \
+    HELM2TO3_LICENSE_SHA256 \
+    HELM2TO3_APPLIED_PATCH_SHA256 \
+    HELM2TO3_HELM3_VERSION \
+    HELM2TO3_ORAS_GO_VERSION \
+    HELM2TO3_X_TEXT_VERSION \
+    HELM2TO3_REBUILT_LINUX_AMD64_SHA256 \
+    HELM4_TARGET_VERSION \
+    HELM4_BUILD_VERSION \
+    HELM4_TARGET_GIT_COMMIT \
+    HELM4_TARGET_SOURCE_SHA256 \
+    HELM4_TARGET_LICENSE_SHA256 \
+    HELM4_SECURITY_PATCH_COMMIT \
+    HELM4_SECURITY_PATCH_SHA256 \
+    HELM4_APPLIED_PATCH_SHA256 \
+    HELM4_ORAS_GO_VERSION \
+    HELM4_REBUILT_LINUX_AMD64_SHA256; do
+    value="${!arg:-}"
+    if [ -n "${value}" ]; then
+        build_args+=(--build-arg "${arg}=${value}")
+    fi
+done
+build_args+=(--build-arg "SOURCE_REVISION=${SOURCE_REVISION}")
+if [ -n "${DOCKER_BUILD_NETWORK:-}" ]; then
+    build_args+=(--network "${DOCKER_BUILD_NETWORK}")
+fi
+
+docker build "${build_args[@]}" \
+    --build-arg "IMAGE_VERSION=${TAG}" \
+    -t "${IMAGE}" .
+docker build "${build_args[@]}" \
+    --build-arg "TILLER_IMAGE_VERSION=${TILLER_TAG}" \
+    --target tiller-runtime \
+    -t "${TILLER_IMAGE}" .
+docker build "${build_args[@]}" \
+    --build-arg "HELM_MIGRATION_IMAGE_VERSION=${HELM_MIGRATION_TAG}" \
+    --target helm-migration-tools-runtime \
+    -t "${HELM_MIGRATION_IMAGE}" .
+
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" version --client
+test "$(docker run --rm --entrypoint /usr/bin/sha256sum "${IMAGE}" /usr/bin/helm | awk '{print $1}')" = "${HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256}"
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" init -c
+helm4_version=$(docker run --rm --entrypoint /usr/bin/helm4 "${IMAGE}" version --short)
+grep -Fq "${HELM4_BUILD_VERSION}" <<< "${helm4_version}"
+helm4_build=$(docker run --rm --entrypoint /usr/bin/helm4 "${IMAGE}" version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }}')
+test "${helm4_build}" = "${HELM4_BUILD_VERSION} ${HELM4_TARGET_GIT_COMMIT} clean"
+test "$(docker run --rm --entrypoint /usr/bin/sha256sum "${IMAGE}" /usr/bin/helm4 | awk '{print $1}')" = "${HELM4_REBUILT_LINUX_AMD64_SHA256}"
+helm4_oras_version=$(docker run --rm --entrypoint /usr/bin/awk "${IMAGE}" '$1 == "dep" && $2 == "oras.land/oras-go/v2" {print $3}' /licenses/HELM4-MODULES.txt)
+test "${helm4_oras_version}" = "${HELM4_ORAS_GO_VERSION}"
+helm4_license_sha=$(docker run --rm --entrypoint /usr/bin/sha256sum "${IMAGE}" /licenses/HELM4-LICENSE | awk '{print $1}')
+test "${helm4_license_sha}" = "${HELM4_TARGET_LICENSE_SHA256}"
+helm4_smoke_volume=$(docker volume create)
+shell_smoke_container="pstk-kubectl-shell-smoke-$$"
+cleanup_helm4_smoke() {
+    docker rm -f "${shell_smoke_container}" >/dev/null 2>&1 || true
+    docker volume rm -f "${helm4_smoke_volume}" >/dev/null 2>&1 || true
+}
+trap cleanup_helm4_smoke EXIT
+docker run --rm \
+    --user 0:0 \
+    -v "${helm4_smoke_volume}:/chart" \
+    --entrypoint /bin/sh "${IMAGE}" \
+    -c "printf 'apiVersion: v2\\nname: pasturestack-smoke\\nversion: 0.1.0\\n' > /chart/Chart.yaml"
+helm4_rendered=$(docker run --rm \
+    -v "${helm4_smoke_volume}:/chart:ro" \
+    --entrypoint /usr/bin/helm4 "${IMAGE}" \
+    install pasturestack-smoke /chart \
+    --dry-run=client \
+    --server-side=false \
+    --color=never \
+    --namespace pasturestack-smoke)
+grep -Fq 'NAME: pasturestack-smoke' <<< "${helm4_rendered}"
+docker run --rm --entrypoint /usr/bin/kubectl "${IMAGE}" version --client=true --short=true
+test "$(docker image inspect "${IMAGE}" --format '{{.Config.User}}')" = "65534:65534"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.runtime.user"}}')" = "65534:65534"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.shell.requires-privileged"}}')" = "false"
+docker run --rm \
+    --read-only \
+    --tmpfs /home/pasturestack:rw,noexec,nosuid,nodev,size=32m,mode=0700,uid=65534,gid=65534 \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m,mode=0700,uid=65534,gid=65534 \
+    --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --entrypoint /bin/bash "${IMAGE}" \
+    -c '/usr/bin/update-platform-ca "$SSL_CERT_FILE" && test -s "$SSL_CERT_FILE" && /usr/bin/helm init -c && /usr/bin/helm4 version --short >/dev/null && test "$(id -u):$(id -g)" = 65534:65534'
+
+docker run -d \
+    --name "${shell_smoke_container}" \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=0700,uid=65534,gid=65534 \
+    --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --entrypoint /usr/bin/kubectl-shell-entry.sh \
+    "${IMAGE}" >/dev/null
+for _ in $(seq 1 20); do
+    if docker exec "${shell_smoke_container}" nc -z 127.0.0.1 10240 >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.25
+done
+docker exec "${shell_smoke_container}" nc -z 127.0.0.1 10240
+shell_output=$(
+    printf '%s\n' \
+        'printf "uid=%s gid=%s\n" "$(id -u)" "$(id -g)"' \
+        'test -r "$KUBECONFIG" && printf "kubeconfig=present\n"' \
+        'printf "token_env=%s\n" "${KUBECTL_SHELL_TOKEN-unset}"' \
+        'exit' |
+        docker exec -i "${shell_smoke_container}" /usr/bin/kubectl-shell.sh test-token
+)
+grep -Fq 'uid=65534 gid=65534' <<< "${shell_output}"
+grep -Fq 'kubeconfig=present' <<< "${shell_output}"
+grep -Fq 'token_env=unset' <<< "${shell_output}"
+test "$(docker exec "${shell_smoke_container}" find /tmp -maxdepth 1 -type d -name 'pasturestack-kubectl-shell.*' -print | wc -l)" -eq 0
+docker rm -f "${shell_smoke_container}" >/dev/null
+shell_smoke_container=''
+docker run --rm "${TILLER_IMAGE}" --version
+test "$(docker run --rm --entrypoint /usr/bin/sha256sum "${TILLER_IMAGE}" /usr/local/bin/tiller | awk '{print $1}')" = "${TILLER_REBUILT_LINUX_AMD64_SHA256}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{.Config.User}}')" = "10001:10001"
+if docker run --rm "${HELM_MIGRATION_IMAGE}"; then
+    echo "Helm migration image must fail closed without an explicit entrypoint" >&2
+    exit 1
+fi
+helm3_migration_build=$(docker run --rm \
+    --entrypoint /usr/local/bin/helm3 "${HELM_MIGRATION_IMAGE}" \
+    version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }}')
+test "${helm3_migration_build}" = "${HELM3_BRIDGE_BUILD_VERSION} ${HELM3_BRIDGE_GIT_COMMIT} clean"
+helm2to3_help=$(docker run --rm \
+    --entrypoint /usr/local/bin/helm2to3 "${HELM_MIGRATION_IMAGE}" --help)
+grep -Fq 'Migrate and Cleanup Helm v2 configuration and releases in-place to Helm v3' \
+    <<< "${helm2to3_help}"
+test "$(docker run --rm --entrypoint /usr/bin/sha256sum "${HELM_MIGRATION_IMAGE}" /usr/local/bin/helm3 | awk '{print $1}')" = "${HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256}"
+test "$(docker run --rm --entrypoint /usr/bin/sha256sum "${HELM_MIGRATION_IMAGE}" /usr/local/bin/helm2to3 | awk '{print $1}')" = "${HELM2TO3_REBUILT_LINUX_AMD64_SHA256}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{.Config.User}}')" = "10001:10001"
+docker run --rm --entrypoint /usr/bin/test "${HELM_MIGRATION_IMAGE}" ! -e /usr/bin/pebble
+command -v trivy >/dev/null 2>&1 || {
+    echo 'trivy is required to package the Helm migration image' >&2
+    exit 1
+}
+trivy image \
+    --skip-db-update \
+    --offline-scan \
+    --scanners vuln,secret \
+    --severity CRITICAL,HIGH \
+    --exit-code 1 \
+    "${HELM_MIGRATION_IMAGE}"
+for image in "${IMAGE}" "${TILLER_IMAGE}" "${HELM_MIGRATION_IMAGE}"; do
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/PastureStack/kubectl-service"
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "${SOURCE_REVISION}"
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "io.pasturestack.ubuntu.snapshot"}}')" = "${UBUNTU_APT_SNAPSHOT}"
+done
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TAG}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2.version"}}')" = "${HELM_BUILD_VERSION}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2.upstream.version"}}')" = "${HELM_VERSION}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.version"}}')" = "${HELM4_BUILD_VERSION}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.upstream.version"}}')" = "${HELM4_TARGET_VERSION}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.security-patch"}}')" = "${HELM4_SECURITY_PATCH_COMMIT}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.applied-patch-sha256"}}')" = "${HELM4_APPLIED_PATCH_SHA256}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.oras-go.version"}}')" = "${HELM4_ORAS_GO_VERSION}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TILLER_TAG}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2.version"}}')" = "${HELM_BUILD_VERSION}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2.upstream.version"}}')" = "${HELM_VERSION}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${HELM_MIGRATION_TAG}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm3.version"}}')" = "${HELM3_BRIDGE_BUILD_VERSION}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm3.upstream.version"}}')" = "${HELM3_BRIDGE_VERSION}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2to3.version"}}')" = "${HELM2TO3_BUILD_VERSION}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm2to3.upstream.version"}}')" = "${HELM2TO3_VERSION}"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.execution"}}')" = "explicit-only"
+test "$(docker image inspect "${HELM_MIGRATION_IMAGE}" --format '{{index .Config.Labels "io.pasturestack.upstream-binaries"}}')" = "prohibited"
+
+mkdir -p ../dist
+docker run --rm --entrypoint /usr/bin/cat "${IMAGE}" \
+    /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv \
+    > ../dist/kubectl-service-ubuntu-apt-packages.tsv
+docker run --rm --entrypoint /usr/bin/cat "${IMAGE}" \
+    /licenses/HELM2-BUILDER-UBUNTU-APT-PACKAGES.tsv \
+    > ../dist/helm2-builder-ubuntu-apt-packages.tsv
+docker run --rm --entrypoint /usr/bin/cat "${IMAGE}" \
+    /licenses/KUBECTL-EXTRACTOR-UBUNTU-APT-PACKAGES.tsv \
+    > ../dist/kubectl-extractor-ubuntu-apt-packages.tsv
+docker run --rm --entrypoint /usr/bin/cat "${TILLER_IMAGE}" \
+    /licenses/TILLER-UBUNTU-APT-PACKAGES.tsv \
+    > ../dist/tiller-ubuntu-apt-packages.tsv
+docker run --rm --entrypoint /usr/bin/cat "${HELM_MIGRATION_IMAGE}" \
+    /licenses/HELM-MIGRATION-TOOLS-UBUNTU-APT-PACKAGES.tsv \
+    > ../dist/helm-migration-tools-ubuntu-apt-packages.tsv
+cp ubuntu-apt.lock ../dist/ubuntu-apt.lock
+trivy image \
+    --skip-db-update \
+    --offline-scan \
+    --scanners vuln \
+    --format cyclonedx \
+    --output ../dist/helm-migration-tools.cdx.json \
+    "${HELM_MIGRATION_IMAGE}"
+printf '%s\n%s\n%s\n' "${IMAGE}" "${TILLER_IMAGE}" "${HELM_MIGRATION_IMAGE}" > ../dist/images
+echo "Built ${IMAGE}, ${TILLER_IMAGE}, and ${HELM_MIGRATION_IMAGE} from ${SOURCE_REVISION}"

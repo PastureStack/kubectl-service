@@ -1,0 +1,180 @@
+name: Manual security release gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubectl-service-security-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Build, test, scan, and inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      DAPPER_IMAGE: pasturestack-kubectl-service-dapper:security-gate
+      DAPPER_TRIVY_CACHE: /tmp/pasturestack-trivy-cache
+      VERSION_OVERRIDE: v0.9.12
+    steps:
+      - name: Check out the complete source history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the clean source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          df -h /
+          docker version
+          docker buildx version
+
+      - name: Build the checksum-locked verification environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          make dapper-image DAPPER_IMAGE="$DAPPER_IMAGE"
+          mkdir -p "$DAPPER_TRIVY_CACHE"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$DAPPER_TRIVY_CACHE:/tmp/trivy-cache" \
+            --entrypoint /usr/local/bin/trivy \
+            "$DAPPER_IMAGE" \
+            image --cache-dir /tmp/trivy-cache --download-db-only
+
+      - name: Run the complete source and product gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          make ci \
+            DAPPER_IMAGE="$DAPPER_IMAGE" \
+            DAPPER_TRIVY_CACHE="$DAPPER_TRIVY_CACHE"
+
+      - name: Scan every product and emit CycloneDX evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          socket_group="$(stat -c '%g' /var/run/docker.sock)"
+          run_image_scan() {
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              --group-add "$socket_group" \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$DAPPER_TRIVY_CACHE:/tmp/trivy-cache" \
+              -v "$GITHUB_WORKSPACE:/workspace:ro" \
+              -v "$GITHUB_WORKSPACE/dist:/evidence" \
+              --entrypoint /usr/local/bin/trivy \
+              "$DAPPER_IMAGE" "$@"
+          }
+
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            -v "$DAPPER_TRIVY_CACHE:/tmp/trivy-cache" \
+            --entrypoint /usr/local/bin/trivy \
+            "$DAPPER_IMAGE" \
+            fs --cache-dir /tmp/trivy-cache --scanners secret --exit-code 1 /workspace
+
+          while IFS= read -r image; do
+            test -n "$image"
+            evidence_name="${image##*/}"
+            evidence_name="${evidence_name%%:*}"
+            run_image_scan image \
+              --cache-dir /tmp/trivy-cache \
+              --skip-db-update \
+              --offline-scan \
+              --scanners vuln,secret \
+              --severity CRITICAL,HIGH \
+              --exit-code 1 \
+              "$image"
+            run_image_scan image \
+              --cache-dir /tmp/trivy-cache \
+              --skip-db-update \
+              --offline-scan \
+              --scanners vuln \
+              --format cyclonedx \
+              --output "/evidence/${evidence_name}.cdx.json" \
+              "$image"
+          done < dist/images
+
+          run_image_scan image \
+            --cache-dir /tmp/trivy-cache \
+            --skip-db-update \
+            --offline-scan \
+            --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --format json \
+            --output /evidence/dapper.raw.json \
+            "$DAPPER_IMAGE"
+          run_image_scan image \
+            --cache-dir /tmp/trivy-cache \
+            --skip-db-update \
+            --offline-scan \
+            --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --vex /workspace/security/openvex.json \
+            --format json \
+            --output /evidence/dapper.applicable.json \
+            --exit-code 1 \
+            "$DAPPER_IMAGE"
+
+          docker run --rm \
+            --entrypoint /usr/bin/cat \
+            "$DAPPER_IMAGE" \
+            /licenses/DAPPER-UBUNTU-APT-PACKAGES.tsv \
+            > dist/dapper-ubuntu-apt-packages.tsv
+          docker run --rm \
+            --entrypoint /usr/bin/cat \
+            "$DAPPER_IMAGE" \
+            /licenses/TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv \
+            > dist/trivy-builder-ubuntu-apt-packages.tsv
+          cp package/ubuntu-apt.lock dist/ubuntu-apt.lock
+          printf '%s\n' "$GITHUB_SHA" > dist/source-revision.txt
+          sha256sum dist/*.json dist/*.tsv dist/*.lock | LC_ALL=C sort -k2 > dist/SHA256SUMS
+          {
+            echo '## kubectl-service security release gate'
+            echo
+            printf '%s%s%s\n' '- Source revision: `' "$GITHUB_SHA" '`'
+            echo '- Ubuntu APT snapshot: `20260808T000000Z`'
+            echo '- Product Critical/High/secret findings: 0'
+            echo '- Dapper applicable Critical/High/secret findings after OpenVEX: 0'
+            echo
+            echo '### Evidence SHA-256'
+            echo '```text'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload short-lived SBOM and scan evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kubectl-service-security-evidence-${{ github.run_id }}
+          path: |
+            dist/*.json
+            dist/*.tsv
+            dist/*.lock
+            dist/images
+            dist/SHA256SUMS
+            dist/source-revision.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+          include-hidden-files: false
+
+      - name: Remove verification-only images and cache
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if test -f dist/images; then
+            xargs --no-run-if-empty docker image rm -f < dist/images
+          fi
+          docker image rm -f "$DAPPER_IMAGE"
+          docker builder prune --all --force

@@ -1,0 +1,62 @@
+#!/bin/bash
+set -euo pipefail
+
+umask 077
+
+system_bundle="${SYSTEM_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
+platform_ca="${PLATFORM_CA_ROOT:-/var/lib/pasturestack/etc/ssl/ca.crt}"
+output_bundle="${1:-${SSL_CERT_FILE:-${HOME}/.local/share/ca-certificates/ca-bundle.crt}}"
+
+for path in "${system_bundle}" "${platform_ca}" "${output_bundle}"; do
+  case "${path}" in
+    /*)
+      ;;
+    *)
+      echo 'CA paths must be absolute' >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ ! -f "${system_bundle}" ] || [ ! -r "${system_bundle}" ]; then
+  echo 'The system CA bundle is missing or unreadable' >&2
+  exit 1
+fi
+if [ "${platform_ca}" = "${output_bundle}" ]; then
+  echo 'The platform CA input and generated bundle must be different files' >&2
+  exit 2
+fi
+
+if [ -e "${platform_ca}" ]; then
+  if [ ! -f "${platform_ca}" ] || [ ! -r "${platform_ca}" ]; then
+    echo 'The control-platform CA must be a readable regular file' >&2
+    exit 1
+  fi
+  if grep -q -- 'PRIVATE KEY' "${platform_ca}"; then
+    echo 'The control-platform CA input must not contain a private key' >&2
+    exit 1
+  fi
+  begin_count=$(grep -c -- '-----BEGIN CERTIFICATE-----' "${platform_ca}" || true)
+  end_count=$(grep -c -- '-----END CERTIFICATE-----' "${platform_ca}" || true)
+  if [ "${begin_count}" -eq 0 ] || [ "${begin_count}" -ne "${end_count}" ]; then
+    echo 'The control-platform CA is not a balanced PEM certificate bundle' >&2
+    exit 1
+  fi
+fi
+
+output_directory=$(dirname "${output_bundle}")
+install -d -m 0700 "${output_directory}"
+temporary_bundle=$(mktemp "${output_bundle}.tmp.XXXXXX")
+cleanup() {
+  rm -f -- "${temporary_bundle}"
+}
+trap cleanup EXIT
+
+cat "${system_bundle}" > "${temporary_bundle}"
+if [ -e "${platform_ca}" ]; then
+  printf '\n' >> "${temporary_bundle}"
+  cat "${platform_ca}" >> "${temporary_bundle}"
+fi
+chmod 0600 "${temporary_bundle}"
+mv -f -- "${temporary_bundle}" "${output_bundle}"
+trap - EXIT

@@ -1,4 +1,4 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-nc -k -l 10240 > /dev/null 2>&1
+exec nc -k -l 10240 > /dev/null 2>&1

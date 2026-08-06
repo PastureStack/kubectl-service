@@ -1,15 +1,204 @@
-FROM golang:1.8.3
-RUN go get github.com/golang/lint/golint
-RUN go get github.com/rancher/trash
-RUN curl -sL https://get.docker.com/builds/Linux/x86_64/docker-1.9.1 > /usr/bin/docker && \
-    chmod +x /usr/bin/docker
-ENV PATH /go/bin:$PATH
-ENV DAPPER_SOURCE /go/src/github.com/rancher/kubectld
-ENV DAPPER_OUTPUT bin dist
-ENV DAPPER_DOCKER_SOCKET true
-ENV DAPPER_ENV TAG REPO
-ENV GO15VENDOREXPERIMENT 1
-ENV TRASH_CACHE ${DAPPER_SOURCE}/.trash-cache
+FROM docker:29.6.2-cli@sha256:be132a9f282288de4afaf63379dff75711fda0147c6b72a9df44e51841402144 AS docker-cli
+
+FROM docker/buildx-bin:0.36.1@sha256:1f2f6b2be4a2511ada67336e76892f1a588c89746009dd4b21069e4d867465be AS buildx
+
+FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS trivy-builder
+
+COPY --from=docker-cli /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY package/ubuntu-apt.lock /licenses/ubuntu-apt.lock
+
+ARG DAPPER_HOST_ARCH=amd64
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256_amd64=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_SHA256_arm64=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+ARG TRIVY_UPSTREAM_VERSION=0.73.0
+ARG TRIVY_VERSION=0.73.1
+ARG TRIVY_GIT_COMMIT=40c73e5d6166dcc0346a1ab4e94499d1572854e4
+ARG TRIVY_SOURCE_SHA256=dd35bec9570e1968b7a3d0d9f6504e5ac2f6a87eea0eee8ddcadd44d08940ee7
+ARG TRIVY_LICENSE_SHA256=c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+ARG TRIVY_PATCH_SHA256=ae0430b03044dff4b9b2e4115f1e5c156f623356aeb0e1213e4ae0f2c9dd8354
+ARG TRIVY_GO_MOD_SHA256=6b2f30f164c6f377bb4b4cfa06e9b7ece30ddb664bd6a621f5d1518d451c7adc
+ARG TRIVY_GO_SUM_SHA256=b220e895f26a9234c473be5ad78f624abf3bf49ec30303abbb312029df4d8ce2
+ENV DEBIAN_FRONTEND=noninteractive \
+    GOCACHE=/tmp/go-build-cache \
+    GOMAXPROCS=2 \
+    GOMODCACHE=/tmp/go-module-cache \
+    GOTELEMETRY=off \
+    PATH=/usr/local/go/bin:${PATH}
+
+COPY build-tools/trivy-v0.73.0-oras-go-v2.6.2-go-git-v5.19.2.patch /tmp/trivy-security.patch
+
+RUN set -eux; \
+    . /licenses/ubuntu-apt.lock; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' {} +; \
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
+    apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}" update; \
+    apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}" install -y --no-install-recommends \
+        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
+        curl="${UBUNTU_APT_CURL_VERSION}" \
+        patch="${UBUNTU_APT_PATCH_VERSION}" \
+        tar="${UBUNTU_APT_TAR_VERSION}"; \
+    mkdir -p /out; \
+    { \
+        printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; \
+        dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; \
+    } > /out/TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv; \
+    rm -rf /var/lib/apt/lists/*; \
+    case "${DAPPER_HOST_ARCH}" in \
+        amd64) go_arch=amd64; go_sha="${GO_SHA256_amd64}" ;; \
+        arm64) go_arch=arm64; go_sha="${GO_SHA256_arm64}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz"; \
+    echo "${go_sha}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/trivy-source.tgz "https://codeload.github.com/aquasecurity/trivy/tar.gz/${TRIVY_GIT_COMMIT}"; \
+    echo "${TRIVY_SOURCE_SHA256}  /tmp/trivy-source.tgz" | sha256sum -c -; \
+    mkdir -p /src/trivy /out; \
+    tar -C /src/trivy --strip-components=1 -xzf /tmp/trivy-source.tgz; \
+    rm -f /tmp/trivy-source.tgz; \
+    echo "${TRIVY_LICENSE_SHA256}  /src/trivy/LICENSE" | sha256sum -c -; \
+    echo "${TRIVY_PATCH_SHA256}  /tmp/trivy-security.patch" | sha256sum -c -; \
+    cd /src/trivy; \
+    patch --batch --forward --fuzz=0 -p1 < /tmp/trivy-security.patch; \
+    echo "${TRIVY_GO_MOD_SHA256}  go.mod" | sha256sum -c -; \
+    echo "${TRIVY_GO_SUM_SHA256}  go.sum" | sha256sum -c -; \
+    GOEXPERIMENT=jsonv2 go mod download; \
+    GOEXPERIMENT=jsonv2 go mod verify; \
+    GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -p=2 -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
+        -o /out/trivy ./cmd/trivy; \
+    /out/trivy --version > /out/TRIVY-VERSION.txt; \
+    go version -m /out/trivy > /out/TRIVY-BUILDINFO.txt; \
+    cp LICENSE /out/TRIVY-LICENSE; \
+    chmod -R u+w /tmp/go-build-cache /tmp/go-module-cache /src/trivy; \
+    rm -rf /tmp/go-build-cache /tmp/go-module-cache /src/trivy /usr/local/go /tmp/trivy-security.patch
+
+RUN set -eux; \
+    test "$(cat /out/TRIVY-VERSION.txt)" = "Version: ${TRIVY_VERSION}"; \
+    awk '$1 == "dep" && $2 == "github.com/go-git/go-git/v5" && $3 == "v5.19.2" { found=1 } END { exit found ? 0 : 1 }' /out/TRIVY-BUILDINFO.txt; \
+    ! awk '$1 == "dep" && $2 == "github.com/go-git/go-git/v5" && $3 == "v5.19.1" { found=1 } END { exit found ? 0 : 1 }' /out/TRIVY-BUILDINFO.txt; \
+    awk '$1 == "dep" && $2 == "oras.land/oras-go/v2" && $3 == "v2.6.2" { found=1 } END { exit found ? 0 : 1 }' /out/TRIVY-BUILDINFO.txt; \
+    ! awk '$1 == "dep" && $2 == "oras.land/oras-go/v2" && $3 == "v2.6.1" { found=1 } END { exit found ? 0 : 1 }' /out/TRIVY-BUILDINFO.txt
+
+FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03
+
+COPY --from=docker-cli /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY package/ubuntu-apt.lock /licenses/ubuntu-apt.lock
+
+ARG DAPPER_HOST_ARCH=amd64
+ARG BUILDX_VERSION=0.36.1
+ARG BUILDX_GIT_COMMIT=1d8dde89b8aba914e05e45366770736fea1fd690
+ARG TRIVY_UPSTREAM_VERSION=0.73.0
+ARG TRIVY_VERSION=0.73.1
+ARG TRIVY_GIT_COMMIT=40c73e5d6166dcc0346a1ab4e94499d1572854e4
+ARG TRIVY_SOURCE_SHA256=dd35bec9570e1968b7a3d0d9f6504e5ac2f6a87eea0eee8ddcadd44d08940ee7
+ARG TRIVY_PATCH_SHA256=ae0430b03044dff4b9b2e4115f1e5c156f623356aeb0e1213e4ae0f2c9dd8354
+ARG TRIVY_GO_GIT_VERSION=5.19.2
+ARG TRIVY_ORAS_GO_VERSION=2.6.2
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256_amd64=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_SHA256_arm64=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOST_ARCH=${DAPPER_HOST_ARCH} \
+    ARCH=${DAPPER_HOST_ARCH} \
+    GOPATH=/go \
+    GO111MODULE=off \
+    GOCACHE=/tmp/go-build-cache \
+    GOTELEMETRY=off \
+    XDG_CONFIG_HOME=/tmp/go-config \
+    GIT_CONFIG_GLOBAL=/tmp/gitconfig \
+    PATH=/go/bin:/usr/local/go/bin:${PATH} \
+    SHELL=/bin/bash
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/bin/docker
+COPY --from=buildx /buildx /usr/libexec/docker/cli-plugins/docker-buildx
+COPY --from=trivy-builder /out/trivy /usr/local/bin/trivy
+COPY --from=trivy-builder /out/TRIVY-LICENSE /licenses/TRIVY-LICENSE
+COPY --from=trivy-builder /out/TRIVY-BUILDINFO.txt /licenses/TRIVY-BUILDINFO.txt
+COPY --from=trivy-builder /out/TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv /licenses/TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv
+
+RUN set -eux; \
+    . /licenses/ubuntu-apt.lock; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' {} +; \
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\n' > /etc/apt/apt.conf.d/80pasturestack-retries; \
+    apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}" update; \
+    apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}" install -y --no-install-recommends \
+        bash="${UBUNTU_APT_BASH_VERSION}" \
+        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
+        curl="${UBUNTU_APT_CURL_VERSION}" \
+        file="${UBUNTU_APT_FILE_VERSION}" \
+        gcc="${UBUNTU_APT_GCC_VERSION}" \
+        git="${UBUNTU_APT_GIT_VERSION}" \
+        libc6-dev="${UBUNTU_APT_LIBC6_DEV_VERSION}" \
+        make="${UBUNTU_APT_MAKE_VERSION}" \
+        tar="${UBUNTU_APT_TAR_VERSION}" \
+        xz-utils="${UBUNTU_APT_XZ_UTILS_VERSION}"; \
+    { \
+        printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; \
+        dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; \
+    } > /licenses/DAPPER-UBUNTU-APT-PACKAGES.tsv; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -f /usr/bin/pebble; \
+    rm -f /bin/sh; \
+    ln -s /bin/bash /bin/sh
+
+RUN set -eux; \
+    case "${DAPPER_HOST_ARCH}" in \
+        amd64) go_arch=amd64; go_sha="${GO_SHA256_amd64}" ;; \
+        arm64) go_arch=arm64; go_sha="${GO_SHA256_arm64}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz"; \
+    echo "${go_sha}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    chmod +x /usr/bin/docker; \
+    mkdir -p \
+        /go/bin \
+        /go/src/github.com/PastureStack/kubectl-service \
+        /tmp/go-build-cache \
+        /tmp/go-config \
+        /tmp/pasturestack-dapper-home; \
+    chown -R 65534:65534 \
+        /go/bin \
+        /go/src/github.com/PastureStack/kubectl-service \
+        /tmp/go-build-cache \
+        /tmp/go-config \
+        /tmp/pasturestack-dapper-home; \
+    git config --system --add safe.directory '*'; \
+    go version; \
+    docker --version; \
+    docker buildx version | grep -F "github.com/docker/buildx v${BUILDX_VERSION} ${BUILDX_GIT_COMMIT}"; \
+    test "$(trivy --version)" = "Version: ${TRIVY_VERSION}"
+
+ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/kubectl-service \
+    DAPPER_OUTPUT="bin dist" \
+    DAPPER_DOCKER_SOCKET=true \
+    DAPPER_ENV="TAG REPO IMAGE_NAME TILLER_IMAGE_NAME TILLER_TAG VERSION_OVERRIDE DOCKER_BUILDKIT DOCKER_BUILD_NETWORK" \
+    GO15VENDOREXPERIMENT=1 \
+    HOME=/tmp/pasturestack-dapper-home
+
 WORKDIR ${DAPPER_SOURCE}
+LABEL io.pasturestack.build.buildx.version="${BUILDX_VERSION}" \
+      io.pasturestack.build.buildx.revision="${BUILDX_GIT_COMMIT}" \
+      io.pasturestack.build.trivy.version="${TRIVY_VERSION}" \
+      io.pasturestack.build.trivy.upstream-version="${TRIVY_UPSTREAM_VERSION}" \
+      io.pasturestack.build.trivy.revision="${TRIVY_GIT_COMMIT}" \
+      io.pasturestack.build.trivy.source-sha256="${TRIVY_SOURCE_SHA256}" \
+      io.pasturestack.build.trivy.patch-sha256="${TRIVY_PATCH_SHA256}" \
+      io.pasturestack.build.trivy.go-git.version="${TRIVY_GO_GIT_VERSION}" \
+      io.pasturestack.build.trivy.oras-go.version="${TRIVY_ORAS_GO_VERSION}" \
+      io.pasturestack.build.ubuntu.snapshot="20260808T000000Z" \
+      io.pasturestack.build.gcc.version="4:15.2.0-5ubuntu1"
+USER 65534:65534
 ENTRYPOINT ["./scripts/entry"]
 CMD ["ci"]

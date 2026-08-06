@@ -1,0 +1,688 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
+# shellcheck disable=SC1091
+source migration/targets.lock.env
+# shellcheck disable=SC1091
+source package/ubuntu-apt.lock
+
+failures=0
+expected_version="v2.17.0"
+expected_build_version="$HELM_BUILD_VERSION"
+expected_helm_client_binary_sha256="$HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256"
+expected_tiller_binary_sha256="$TILLER_REBUILT_LINUX_AMD64_SHA256"
+expected_go="1.26.5"
+expected_helm_commit="a690bad98af45b015bd3da1a41f6218b1a451dbe"
+expected_helm_patch_sha256="3bdf5475025db4d76afad26272f4848b2604c6e0e547b3aaf8243b48e16a9735"
+expected_kubernetes_version="v1.12.10"
+expected_kubernetes_commit="e3c134023df5dea457638b614ee17ef234dc34a6"
+expected_kubernetes_sha512="201ca1af1c4fbecd598a8a6dc0ff5c865e4dab767ec2e768e8100b0c6c450c5ae1ab773aad9e5cdf3f61c15abf3a28f7c4640fbaaac097096905366acbd90a97"
+expected_docker_cli_image="docker:29.6.2-cli@sha256:be132a9f282288de4afaf63379dff75711fda0147c6b72a9df44e51841402144"
+expected_helm3_version="$HELM3_BRIDGE_VERSION"
+expected_helm3_build_version="$HELM3_BRIDGE_BUILD_VERSION"
+expected_helm3_commit="$HELM3_BRIDGE_GIT_COMMIT"
+expected_helm3_source_sha256="$HELM3_BRIDGE_SOURCE_SHA256"
+expected_helm3_license_sha256="$HELM3_BRIDGE_LICENSE_SHA256"
+expected_helm3_patch_sha256="$HELM3_BRIDGE_APPLIED_PATCH_SHA256"
+expected_helm3_binary_sha256="$HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256"
+expected_helm2to3_version="$HELM2TO3_VERSION"
+expected_helm2to3_build_version="$HELM2TO3_BUILD_VERSION"
+expected_helm2to3_commit="$HELM2TO3_GIT_COMMIT"
+expected_helm2to3_source_sha256="$HELM2TO3_SOURCE_SHA256"
+expected_helm2to3_license_sha256="$HELM2TO3_LICENSE_SHA256"
+expected_helm2to3_patch_sha256="$HELM2TO3_APPLIED_PATCH_SHA256"
+expected_helm2to3_binary_sha256="$HELM2TO3_REBUILT_LINUX_AMD64_SHA256"
+expected_helm4_version="$HELM4_TARGET_VERSION"
+expected_helm4_build_version="$HELM4_BUILD_VERSION"
+expected_helm4_commit="$HELM4_TARGET_GIT_COMMIT"
+expected_helm4_archive_sha256="$HELM4_TARGET_LINUX_AMD64_SHA256"
+expected_helm4_source_sha256="$HELM4_TARGET_SOURCE_SHA256"
+expected_helm4_license_sha256="$HELM4_TARGET_LICENSE_SHA256"
+expected_helm4_security_patch_commit="$HELM4_SECURITY_PATCH_COMMIT"
+expected_helm4_security_patch_sha256="$HELM4_SECURITY_PATCH_SHA256"
+expected_helm4_applied_patch_sha256="$HELM4_APPLIED_PATCH_SHA256"
+expected_helm4_oras_go_version="$HELM4_ORAS_GO_VERSION"
+expected_helm4_binary_sha256="$HELM4_REBUILT_LINUX_AMD64_SHA256"
+
+fail() {
+    local code=$1
+    shift || true
+    echo "$code $*" | sed 's/[[:space:]]*$//'
+    failures=$((failures + 1))
+}
+
+if [ "$UBUNTU_APT_SNAPSHOT" != '20260808T000000Z' ]; then
+    fail KUBECTL_SERVICE_UBUNTU_APT_SNAPSHOT_DRIFT "actual=$UBUNTU_APT_SNAPSHOT expected=20260808T000000Z"
+fi
+if ! echo 'fcdb837261fcf690789153964ace4f0c01f3f318b836559ad3f4e31fcd051a7d  package/ubuntu-apt.lock' | sha256sum -c - >/dev/null; then
+    fail KUBECTL_SERVICE_UBUNTU_APT_LOCK_HASH_DRIFT
+fi
+for name in \
+    UBUNTU_APT_BASH_VERSION \
+    UBUNTU_APT_BASH_COMPLETION_VERSION \
+    UBUNTU_APT_CA_CERTIFICATES_VERSION \
+    UBUNTU_APT_CURL_VERSION \
+    UBUNTU_APT_FILE_VERSION \
+    UBUNTU_APT_GCC_VERSION \
+    UBUNTU_APT_GIT_VERSION \
+    UBUNTU_APT_LIBC6_DEV_VERSION \
+    UBUNTU_APT_MAKE_VERSION \
+    UBUNTU_APT_NETCAT_OPENBSD_VERSION \
+    UBUNTU_APT_PATCH_VERSION \
+    UBUNTU_APT_TAR_VERSION \
+    UBUNTU_APT_UTIL_LINUX_VERSION \
+    UBUNTU_APT_XZ_UTILS_VERSION; do
+    if ! grep -Fq "${name}='${!name}'" package/ubuntu-apt.lock; then
+        fail KUBECTL_SERVICE_UBUNTU_APT_LOCK_VALUE_MISSING "name=$name"
+    fi
+    printf -v marker '=\"${%s}\"' "$name"
+    if ! grep -Fq -- "$marker" Dockerfile.dapper package/Dockerfile; then
+        fail KUBECTL_SERVICE_UBUNTU_APT_EXACT_VERSION_UNUSED "name=$name"
+    fi
+done
+if grep -R -n -E 'UBUNTU_MIRROR|apt-get (update|install)' \
+    Dockerfile.dapper package/Dockerfile Makefile scripts/package; then
+    fail KUBECTL_SERVICE_MUTABLE_UBUNTU_APT_SOURCE_PRESENT
+fi
+if [ "$(grep -Fc 'apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}"' Dockerfile.dapper)" -ne 4 ] || \
+    [ "$(grep -Fc 'apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}"' package/Dockerfile)" -ne 10 ]; then
+    fail KUBECTL_SERVICE_UBUNTU_APT_SNAPSHOT_COVERAGE_DRIFT
+fi
+if [ "$(grep -Fc 'Acquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";' Dockerfile.dapper)" -ne 2 ] || \
+    [ "$(grep -Fc 'Acquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";' package/Dockerfile)" -ne 5 ]; then
+    fail KUBECTL_SERVICE_UBUNTU_APT_CA_COVERAGE_DRIFT
+fi
+for required in \
+    'COPY --from=docker-cli /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' \
+    'COPY package/ubuntu-apt.lock /licenses/ubuntu-apt.lock' \
+    'DAPPER-UBUNTU-APT-PACKAGES.tsv' \
+    'TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv' \
+    'io.pasturestack.build.ubuntu.snapshot="20260808T000000Z"'; do
+    if ! grep -Fq -- "$required" Dockerfile.dapper; then
+        fail KUBECTL_SERVICE_DAPPER_UBUNTU_APT_EVIDENCE_MISSING "marker=$required"
+    fi
+done
+for required in \
+    "FROM ${expected_docker_cli_image} AS snapshot-ca-certificates" \
+    'COPY --from=snapshot-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' \
+    'COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock' \
+    'HELM2-BUILDER-UBUNTU-APT-PACKAGES.tsv' \
+    'TILLER-UBUNTU-APT-PACKAGES.tsv' \
+    'KUBECTL-EXTRACTOR-UBUNTU-APT-PACKAGES.tsv' \
+    'HELM-MIGRATION-TOOLS-UBUNTU-APT-PACKAGES.tsv' \
+    'KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv' \
+    'io.pasturestack.ubuntu.snapshot="20260808T000000Z"'; do
+    if ! grep -Fq -- "$required" package/Dockerfile; then
+        fail KUBECTL_SERVICE_PRODUCT_UBUNTU_APT_EVIDENCE_MISSING "marker=$required"
+    fi
+done
+
+if ! grep -qx "ARG HELM_VERSION=${expected_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM_VERSION=${expected_version}"
+fi
+if ! grep -qx "ARG HELM_BUILD_VERSION=${expected_build_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_BUILD_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_BUILD_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM_BUILD_VERSION=${expected_build_version}"
+fi
+if ! grep -qx "ARG HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256=${expected_helm_client_binary_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_CLIENT_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256=${expected_helm_client_binary_sha256}"
+fi
+if ! grep -qx "ARG TILLER_REBUILT_LINUX_AMD64_SHA256=${expected_tiller_binary_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG TILLER_REBUILT_LINUX_AMD64_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_TILLER_SHA256_DRIFT "actual=${actual:-missing} expected=ARG TILLER_REBUILT_LINUX_AMD64_SHA256=${expected_tiller_binary_sha256}"
+fi
+if ! grep -qx "ARG GO_VERSION=${expected_go}" package/Dockerfile; then
+    actual=$(grep -E '^ARG GO_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_GO_VERSION_DRIFT "actual=${actual:-missing} expected=ARG GO_VERSION=${expected_go}"
+fi
+if ! grep -qx "ARG HELM_GIT_COMMIT=${expected_helm_commit}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_GIT_COMMIT=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_COMMIT_DRIFT "actual=${actual:-missing} expected=ARG HELM_GIT_COMMIT=${expected_helm_commit}"
+fi
+if ! grep -qx "ARG HELM_PATCH_SHA256=${expected_helm_patch_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_PATCH_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_PATCH_DRIFT "actual=${actual:-missing} expected=ARG HELM_PATCH_SHA256=${expected_helm_patch_sha256}"
+fi
+if [ "$expected_go" != "$HELM_MIGRATION_GO_VERSION" ]; then
+    fail KUBECTL_SERVICE_HELM_MIGRATION_GO_LOCK_DRIFT "build=${expected_go} migration_lock=${HELM_MIGRATION_GO_VERSION}"
+fi
+for name in \
+    HELM3_BRIDGE_VERSION \
+    HELM3_BRIDGE_BUILD_VERSION \
+    HELM3_BRIDGE_GIT_COMMIT \
+    HELM3_BRIDGE_SOURCE_SHA256 \
+    HELM3_BRIDGE_LICENSE_SHA256 \
+    HELM3_BRIDGE_APPLIED_PATCH_SHA256 \
+    HELM3_BRIDGE_ORAS_GO_VERSION \
+    HELM3_BRIDGE_X_TEXT_VERSION \
+    HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256 \
+    HELM2TO3_VERSION \
+    HELM2TO3_BUILD_VERSION \
+    HELM2TO3_GIT_COMMIT \
+    HELM2TO3_SOURCE_SHA256 \
+    HELM2TO3_LICENSE_SHA256 \
+    HELM2TO3_APPLIED_PATCH_SHA256 \
+    HELM2TO3_HELM3_VERSION \
+    HELM2TO3_ORAS_GO_VERSION \
+    HELM2TO3_X_TEXT_VERSION \
+    HELM2TO3_REBUILT_LINUX_AMD64_SHA256; do
+    if ! grep -qx "ARG ${name}=${!name}" package/Dockerfile; then
+        actual=$(grep -E "^ARG ${name}=" package/Dockerfile || true)
+        fail KUBECTL_SERVICE_HELM_MIGRATION_BUILD_ARG_DRIFT "name=${name} actual=${actual:-missing} expected=ARG ${name}=${!name}"
+    fi
+done
+if ! grep -qx "ARG HELM4_TARGET_VERSION=${expected_helm4_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_TARGET_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM4_TARGET_VERSION=${expected_helm4_version}"
+fi
+if ! grep -qx "ARG HELM4_BUILD_VERSION=${expected_helm4_build_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_BUILD_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_BUILD_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM4_BUILD_VERSION=${expected_helm4_build_version}"
+fi
+if ! grep -qx "ARG HELM4_TARGET_GIT_COMMIT=${expected_helm4_commit}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_TARGET_GIT_COMMIT=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_COMMIT_DRIFT "actual=${actual:-missing} expected=ARG HELM4_TARGET_GIT_COMMIT=${expected_helm4_commit}"
+fi
+if ! grep -qx "ARG HELM4_TARGET_SOURCE_SHA256=${expected_helm4_source_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_TARGET_SOURCE_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_SOURCE_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM4_TARGET_SOURCE_SHA256=${expected_helm4_source_sha256}"
+fi
+if ! grep -qx "ARG HELM4_TARGET_LICENSE_SHA256=${expected_helm4_license_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_TARGET_LICENSE_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_LICENSE_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM4_TARGET_LICENSE_SHA256=${expected_helm4_license_sha256}"
+fi
+if ! grep -qx "ARG HELM4_SECURITY_PATCH_COMMIT=${expected_helm4_security_patch_commit}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_SECURITY_PATCH_COMMIT=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_SECURITY_PATCH_COMMIT_DRIFT "actual=${actual:-missing} expected=ARG HELM4_SECURITY_PATCH_COMMIT=${expected_helm4_security_patch_commit}"
+fi
+if ! grep -qx "ARG HELM4_SECURITY_PATCH_SHA256=${expected_helm4_security_patch_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_SECURITY_PATCH_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_SECURITY_PATCH_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM4_SECURITY_PATCH_SHA256=${expected_helm4_security_patch_sha256}"
+fi
+if ! grep -qx "ARG HELM4_APPLIED_PATCH_SHA256=${expected_helm4_applied_patch_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_APPLIED_PATCH_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_APPLIED_PATCH_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM4_APPLIED_PATCH_SHA256=${expected_helm4_applied_patch_sha256}"
+fi
+if ! grep -qx "ARG HELM4_ORAS_GO_VERSION=${expected_helm4_oras_go_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_ORAS_GO_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_ORAS_GO_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM4_ORAS_GO_VERSION=${expected_helm4_oras_go_version}"
+fi
+if ! grep -qx "ARG HELM4_REBUILT_LINUX_AMD64_SHA256=${expected_helm4_binary_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM4_REBUILT_LINUX_AMD64_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM4_REBUILT_SHA256_DRIFT "actual=${actual:-missing} expected=ARG HELM4_REBUILT_LINUX_AMD64_SHA256=${expected_helm4_binary_sha256}"
+fi
+
+if grep -Fq 'github.com/dgrijalva/jwt-go' package/helm-v2.17.0.go.mod; then
+    fail KUBECTL_SERVICE_TILLER_RETIRED_JWT_LOCK_PRESENT "module=github.com/dgrijalva/jwt-go"
+fi
+
+if ! grep -Fq 'github.com/prometheus/client_golang v1.24.1' package/helm-v2.17.0.go.mod; then
+    fail KUBECTL_SERVICE_TILLER_PROMETHEUS_LOCK_DRIFT "expected=github.com/prometheus/client_golang_v1.24.1"
+fi
+
+if ! grep -Fq 'diff --git a/cmd/tiller/tiller.go b/cmd/tiller/tiller.go' package/helm-compat-v2.17.0.patch; then
+    fail KUBECTL_SERVICE_TILLER_CLOUD_AUTH_PATCH_MISSING "path=cmd/tiller/tiller.go"
+fi
+if ! grep -qx "ARG KUBERNETES_SOURCE_VERSION=${expected_kubernetes_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG KUBERNETES_SOURCE_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_KUBERNETES_VERSION_DRIFT "actual=${actual:-missing} expected=ARG KUBERNETES_SOURCE_VERSION=${expected_kubernetes_version}"
+fi
+if ! grep -qx "ARG KUBERNETES_SERVER_SHA512=${expected_kubernetes_sha512}" package/Dockerfile; then
+    actual=$(grep -E '^ARG KUBERNETES_SERVER_SHA512=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_KUBERNETES_ARCHIVE_SHA512_DRIFT "actual=${actual:-missing} expected=ARG KUBERNETES_SERVER_SHA512=${expected_kubernetes_sha512}"
+fi
+if [ "$KUBERNETES_SOURCE_VERSION" != "$expected_kubernetes_version" ] || \
+    [ "$KUBERNETES_SOURCE_COMMIT" != "$expected_kubernetes_commit" ] || \
+    [ "$KUBERNETES_SERVER_SHA512" != "$expected_kubernetes_sha512" ]; then
+    fail KUBECTL_SERVICE_KUBERNETES_SOURCE_LOCK_DRIFT \
+        "version=$KUBERNETES_SOURCE_VERSION commit=$KUBERNETES_SOURCE_COMMIT sha512=$KUBERNETES_SERVER_SHA512"
+fi
+if grep -qE 'helm-v2\.3\.0|ARG HELM_VERSION=v2\.3\.0' package/Dockerfile; then
+    fail KUBECTL_SERVICE_HELM230_MARKER_PRESENT
+fi
+if grep -qE 'HELM_SHA256|helm-\$\{HELM_VERSION\}-linux-amd64' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_OFFICIAL_HELM_TARBALL_PATH_PRESENT
+fi
+if grep -qE 'get\.helm\.sh/helm-\$\{HELM3_BRIDGE_VERSION\}|helm-2to3/releases/download|helm-2to3_0\.11\.0_linux_amd64' package/Dockerfile scripts/package; then
+    fail KUBECTL_SERVICE_VULNERABLE_MIGRATION_BINARY_DOWNLOAD_PRESENT
+fi
+if grep -qE 'glide install|Masterminds/glide|GLIDE_' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_FULL_GIT_DEPENDENCY_FETCH_PRESENT
+fi
+if grep -qE 'ARG KUBECTL_VERSION=v1\.36|KUBECTL_GIT_COMMIT|kubernetes/kubernetes.*/go build|component-base/version\.gitMinor=36' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_INCOMPATIBLE_KUBECTL_BUILD_PRESENT
+fi
+if ! grep -qx "FROM ${expected_docker_cli_image} AS docker-cli" Dockerfile.dapper; then
+    actual=$(grep -E '^FROM docker:' Dockerfile.dapper || true)
+    fail KUBECTL_SERVICE_DOCKER_CLI_IMAGE_DRIFT "actual=${actual:-missing} expected=${expected_docker_cli_image}"
+fi
+if ! grep -Fqx 'COPY --from=docker-cli /usr/local/bin/docker /usr/bin/docker' Dockerfile.dapper; then
+    fail KUBECTL_SERVICE_DOCKER_CLI_COPY_MISSING
+fi
+if grep -qE 'download\.docker\.com/.+docker-\$\{DOCKER_VERSION\}\.tgz|ARG DOCKER_VERSION=' Dockerfile.dapper Makefile; then
+    fail KUBECTL_SERVICE_UNVERIFIED_DOCKER_TARBALL_PRESENT
+fi
+if [ "$(awk '$1 == "USER" { user=$2 } END { print user }' Dockerfile.dapper)" != '65534:65534' ]; then
+    fail KUBECTL_SERVICE_DAPPER_ROOT_DEFAULT_PRESENT
+fi
+if ! grep -Fq -- '--user "$$(id -u):$$(id -g)"' Makefile; then
+    fail KUBECTL_SERVICE_DAPPER_HOST_USER_MAPPING_MISSING
+fi
+if ! grep -Fq -- '--group-add "$$(stat -c '\''%g'\'' /var/run/docker.sock)"' Makefile; then
+    fail KUBECTL_SERVICE_DAPPER_DOCKER_SOCKET_GROUP_MISSING
+fi
+if ! grep -Fq -- '-e HOME=/tmp/pasturestack-dapper-home-$$(id -u)' Makefile ||
+    ! grep -Fq -- '-e GOCACHE=/tmp/go-build-cache-$$(id -u)' Makefile ||
+    ! grep -Fq -- '-e GOMAXPROCS=2' Makefile ||
+    ! grep -Fq 'install -d -m 0700 "${HOME}" "${GOCACHE}" "${XDG_CONFIG_HOME}"' scripts/entry; then
+    fail KUBECTL_SERVICE_DAPPER_PER_USER_CACHE_ISOLATION_MISSING
+fi
+if ! grep -Fq 'DOCKER_BUILDKIT ?= 1' Makefile ||
+    ! grep -Fq -- '-e DOCKER_BUILDKIT=$(DOCKER_BUILDKIT)' Makefile ||
+    ! grep -Fq 'DOCKER_BUILDKIT' Dockerfile.dapper; then
+    fail KUBECTL_SERVICE_DAPPER_BUILDKIT_PROPAGATION_MISSING
+fi
+for required in \
+    'FROM docker/buildx-bin:0.36.1@sha256:1f2f6b2be4a2511ada67336e76892f1a588c89746009dd4b21069e4d867465be AS buildx' \
+    'ARG BUILDX_VERSION=0.36.1' \
+    'ARG BUILDX_GIT_COMMIT=1d8dde89b8aba914e05e45366770736fea1fd690' \
+    'COPY --from=buildx /buildx /usr/libexec/docker/cli-plugins/docker-buildx' \
+    'docker buildx version | grep -F "github.com/docker/buildx v${BUILDX_VERSION} ${BUILDX_GIT_COMMIT}"'; do
+    if ! grep -Fq -- "$required" Dockerfile.dapper; then
+        fail KUBECTL_SERVICE_DAPPER_BUILDX_PIN_MISSING "marker=$required"
+    fi
+done
+for required in \
+    'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS trivy-builder' \
+    'ARG TRIVY_VERSION=0.73.1' \
+    'ARG TRIVY_GIT_COMMIT=40c73e5d6166dcc0346a1ab4e94499d1572854e4' \
+    'ARG TRIVY_SOURCE_SHA256=dd35bec9570e1968b7a3d0d9f6504e5ac2f6a87eea0eee8ddcadd44d08940ee7' \
+    'ARG TRIVY_PATCH_SHA256=ae0430b03044dff4b9b2e4115f1e5c156f623356aeb0e1213e4ae0f2c9dd8354' \
+    'ARG TRIVY_GO_GIT_VERSION=5.19.2' \
+    'COPY build-tools/trivy-v0.73.0-oras-go-v2.6.2-go-git-v5.19.2.patch /tmp/trivy-security.patch' \
+    'GOMAXPROCS=2' \
+    'GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -p=2 -mod=readonly -trimpath -buildvcs=false' \
+    'TRIVY-BUILDINFO.txt' \
+    '$1 == "dep" && $2 == "github.com/go-git/go-git/v5" && $3 == "v5.19.2"' \
+    '$1 == "dep" && $2 == "oras.land/oras-go/v2" && $3 == "v2.6.2"' \
+    'COPY --from=trivy-builder /out/trivy /usr/local/bin/trivy' \
+    'COPY --from=trivy-builder /out/TRIVY-BUILDINFO.txt /licenses/TRIVY-BUILDINFO.txt' \
+    'test "$(trivy --version)" = "Version: ${TRIVY_VERSION}"'; do
+    if ! grep -Fq -- "$required" Dockerfile.dapper; then
+        fail KUBECTL_SERVICE_DAPPER_TRIVY_PIN_MISSING "marker=$required"
+    fi
+done
+if grep -Fq 'FROM aquasec/trivy:' Dockerfile.dapper; then
+    fail KUBECTL_SERVICE_DAPPER_UNPATCHED_TRIVY_IMAGE_PRESENT
+fi
+if ! echo 'ae0430b03044dff4b9b2e4115f1e5c156f623356aeb0e1213e4ae0f2c9dd8354  build-tools/trivy-v0.73.0-oras-go-v2.6.2-go-git-v5.19.2.patch' | sha256sum -c - >/dev/null; then
+    fail KUBECTL_SERVICE_DAPPER_TRIVY_PATCH_HASH_DRIFT
+fi
+if ! echo '7d1151fa1cc9f9a383815454c3c3322c05c499cd76982f8bd4289547869616bd  build-tools/buildx-v0.36.1-docker-module-packages.txt' | sha256sum -c - >/dev/null || \
+    ! grep -Fq 'CVE-2026-34040' security/openvex.json || \
+    ! grep -Fq 'CVE-2026-41567' security/openvex.json || \
+    ! grep -Fq 'CVE-2026-42306' security/openvex.json || \
+    ! grep -Fq 'pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible' security/openvex.json || \
+    [ "$(grep -c 'pkg:deb/ubuntu/linux-libc-dev@7.0.0-29.29?arch=amd64&distro=ubuntu-26.04' security/openvex.json)" -ne 46 ] || \
+    ! grep -Fq 'CVE-2026-53215' security/openvex.json || \
+    ! grep -Fq 'CVE-2026-53260' security/openvex.json; then
+    fail KUBECTL_SERVICE_DAPPER_BUILDX_VEX_EVIDENCE_MISSING
+fi
+for required in \
+    'gcc="${UBUNTU_APT_GCC_VERSION}" \' \
+    'libc6-dev="${UBUNTU_APT_LIBC6_DEV_VERSION}" \'; do
+    if ! grep -Fq -- "$required" Dockerfile.dapper; then
+        fail KUBECTL_SERVICE_DAPPER_RACE_TOOLCHAIN_MISSING "marker=$required"
+    fi
+done
+if ! grep -Fq 'go test -race -cover -tags=test' scripts/test; then
+    fail KUBECTL_SERVICE_DAPPER_RACE_TEST_MISSING
+fi
+if ! grep -Fq 'DAPPER_TRIVY_CACHE ?= $(HOME)/.cache/trivy' Makefile || \
+    ! grep -Fq -- '-v "$(DAPPER_TRIVY_CACHE):/tmp/trivy-cache"' Makefile || \
+    ! grep -Fq -- '-e TRIVY_CACHE_DIR=/tmp/trivy-cache' Makefile || \
+    ! grep -Fq 'ci package release: dapper-trivy-cache' Makefile; then
+    fail KUBECTL_SERVICE_DAPPER_TRIVY_CACHE_GATE_MISSING
+fi
+if grep -qE '(^|[[:space:]])chown([[:space:]]|$)' scripts/entry; then
+    fail KUBECTL_SERVICE_DAPPER_ROOT_OWNERSHIP_REWRITE_PRESENT
+fi
+
+for required in \
+    'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS helm2-builder' \
+    'FROM helm2-builder AS helm3-bridge-builder' \
+    'FROM helm3-bridge-builder AS helm2to3-builder' \
+    'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS helm-migration-tools-runtime' \
+    'FROM helm2-builder AS helm4-builder' \
+    'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS kubectl-extractor' \
+    'COPY helm-v2.17.0.go.mod /tmp/helm-lock/test.go.mod' \
+    'COPY helm-v2.17.0.go.sum /tmp/helm-lock/test.go.sum' \
+    'COPY helm-v2.17.0-client.go.mod /tmp/helm-lock/client.go.mod' \
+    'COPY helm-v2.17.0-client.go.sum /tmp/helm-lock/client.go.sum' \
+    'COPY helm-compat-v2.17.0.patch /tmp/helm-lock/helm-compat-v2.17.0.patch' \
+    'git clone --depth 1 --branch "${HELM_VERSION}"' \
+    'git apply --check /tmp/helm-lock/helm-compat-v2.17.0.patch' \
+    'go mod download' \
+    'go mod verify' \
+    'go test ./pkg/kube ./pkg/pasturestack/printers' \
+    'HELM_BUILD_VERSION' \
+    'BuildMetadata=' \
+    'cmp /out/tiller-first /out/tiller-second' \
+    'echo "${TILLER_REBUILT_LINUX_AMD64_SHA256}  /out/tiller-first" | sha256sum -c -' \
+    'cmp /out/helm-first /out/helm-second' \
+    'echo "${HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256}  /out/helm-first" | sha256sum -c -' \
+    '-o /out/tiller-first ./cmd/tiller' \
+    '-o /out/helm-first ./cmd/helm' \
+    'cp LICENSE /out/HELM-LICENSE' \
+    "go version -m /out/tiller | grep -F 'github.com/prometheus/client_golang' | grep -Fq 'v1.24.1'" \
+    '/out/tiller --version' \
+    "! go version -m /out/helm | grep -Fq 'k8s.io/kubernetes'" \
+    "! go version -m /out/helm | grep -Fq 'github.com/dgrijalva/jwt-go'" \
+    "! go version -m /out/helm | grep -Fq 'github.com/prometheus/client_golang'" \
+    "go version -m /out/helm | grep -Fq 'github.com/moby/term'" \
+    "go version -m /out/helm | grep -Fq 'google.golang.org/grpc'" \
+    'go build -mod=readonly -trimpath -buildvcs=false' \
+    'kubernetes-server-linux-amd64.tar.gz' \
+    'https://dl.k8s.io/${KUBERNETES_SOURCE_VERSION}/kubernetes-server-linux-amd64.tar.gz' \
+    'echo "${KUBERNETES_SERVER_SHA512}  /tmp/kubernetes-server.tgz" | sha512sum -c -' \
+    'COPY --from=kubectl-extractor /out/kubectl /usr/bin/kubectl' \
+    'COPY --from=helm2-builder /out/helm /usr/bin/helm' \
+    'COPY helm-v3.21.3-security.patch /tmp/helm3-security.patch' \
+    'ENV GOMAXPROCS=2' \
+    'https://github.com/helm/helm/archive/${HELM3_BRIDGE_GIT_COMMIT}.tar.gz' \
+    'echo "${HELM3_BRIDGE_SOURCE_SHA256}  /tmp/helm3-source.tgz" | sha256sum -c -' \
+    'echo "${HELM3_BRIDGE_APPLIED_PATCH_SHA256}  /tmp/helm3-security.patch" | sha256sum -c -' \
+    'git apply --check --whitespace=error-all /tmp/helm3-security.patch' \
+    'go test -p=2 -mod=readonly -count=1 ./internal/version ./pkg/action ./pkg/storage/...' \
+    'rm -rf /tmp/helm3-test-cache /tmp/helm3-test-gopath' \
+    'rm -rf /tmp/helm3-build-cache-a' \
+    'rm -rf /tmp/helm3-build-cache-b' \
+    'go build -p=2 -mod=readonly -trimpath -buildvcs=false' \
+    'cmp /out/helm3-first /out/helm3-second' \
+    'echo "${HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256}  /out/helm3-first" | sha256sum -c -' \
+    'HELM3_BRIDGE_BUILD_VERSION' \
+    'go version -m /out/helm3 > /out/HELM3-MODULES.txt' \
+    'COPY helm-2to3-v0.11.0-security.patch /tmp/helm2to3-security.patch' \
+    'FROM helm3-bridge-builder AS helm2to3-builder' \
+    'https://github.com/helm/helm-2to3/archive/${HELM2TO3_GIT_COMMIT}.tar.gz' \
+    'echo "${HELM2TO3_SOURCE_SHA256}  /tmp/helm2to3-source.tgz" | sha256sum -c -' \
+    'echo "${HELM2TO3_APPLIED_PATCH_SHA256}  /tmp/helm2to3-security.patch" | sha256sum -c -' \
+    "grep -Fq 'oras.land/oras-go v1.2.5' /tmp/helm2to3-security.patch" \
+    'git apply --check --whitespace=error-all /tmp/helm2to3-security.patch' \
+    'go test -p=2 -mod=readonly -count=1 ./...' \
+    'rm -rf /tmp/helm2to3-test-cache /tmp/helm2to3-test-gopath' \
+    'rm -rf /tmp/helm2to3-build-cache-a' \
+    'rm -rf /tmp/helm2to3-build-cache-b' \
+    'cmp /out/helm2to3-first /out/helm2to3-second' \
+    'echo "${HELM2TO3_REBUILT_LINUX_AMD64_SHA256}  /out/helm2to3-first" | sha256sum -c -' \
+    'HELM2TO3_BUILD_VERSION' \
+    'go version -m /out/helm2to3 > /out/HELM2TO3-MODULES.txt' \
+    'COPY --from=helm3-bridge-builder /out/helm3 /usr/local/bin/helm3' \
+    'COPY --from=helm2to3-builder /out/helm2to3 /usr/local/bin/helm2to3' \
+    'io.pasturestack.execution="explicit-only"' \
+    'io.pasturestack.upstream-binaries="prohibited"' \
+    'ENTRYPOINT ["/usr/bin/false"]' \
+    'https://github.com/helm/helm/archive/refs/tags/${HELM4_TARGET_VERSION}.tar.gz' \
+    'echo "${HELM4_TARGET_SOURCE_SHA256}  /tmp/helm4-source.tgz" | sha256sum -c -' \
+    'COPY helm-v4.2.3-oras-go-v2.6.2.patch /tmp/helm4-applied.patch' \
+    'https://github.com/helm/helm/commit/${HELM4_SECURITY_PATCH_COMMIT}.patch' \
+    'echo "${HELM4_SECURITY_PATCH_SHA256}  /tmp/helm4-upstream.patch" | sha256sum -c -' \
+    'echo "${HELM4_APPLIED_PATCH_SHA256}  /tmp/helm4-applied.patch" | sha256sum -c -' \
+    'for patch_file in /tmp/helm4-upstream.patch /tmp/helm4-applied.patch; do' \
+    'git apply --check --whitespace=error-all /tmp/helm4-applied.patch' \
+    'install -d -m 0755 -o nobody -g nogroup' \
+    'su -s /bin/bash nobody -c' \
+    'go test -mod=readonly oras.land/oras-go/v2/content/file' \
+    'go test -mod=readonly ./pkg/registry' \
+    'go version -m /out/helm4 > /out/HELM4-MODULES.txt' \
+    'echo "${HELM4_REBUILT_LINUX_AMD64_SHA256}  /out/helm4" | sha256sum -c -' \
+    'oras.land/oras-go/v2 v2.6.1' \
+    'echo "${HELM4_TARGET_LICENSE_SHA256}  /out/HELM4-LICENSE" | sha256sum -c -' \
+    "version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }}'" \
+    'COPY --from=helm4-builder /out/helm4 /usr/bin/helm4' \
+    'COPY --from=helm4-builder /out/HELM4-LICENSE /licenses/HELM4-LICENSE' \
+    'COPY --from=helm4-builder /out/HELM4-MODULES.txt /licenses/HELM4-MODULES.txt' \
+    'io.pasturestack.helm4.version="${HELM4_BUILD_VERSION}"' \
+    'io.pasturestack.helm4.upstream.version="${HELM4_TARGET_VERSION}"' \
+    'io.pasturestack.helm4.security-patch="${HELM4_SECURITY_PATCH_COMMIT}"' \
+    'io.pasturestack.helm4.applied-patch-sha256="${HELM4_APPLIED_PATCH_SHA256}"' \
+    'io.pasturestack.helm4.oras-go.version="${HELM4_ORAS_GO_VERSION}"' \
+    'SSL_CERT_FILE=/home/pasturestack/.local/share/ca-certificates/ca-bundle.crt' \
+    'io.pasturestack.runtime.user="65534:65534"' \
+    'io.pasturestack.shell.requires-privileged="false"' \
+    'USER 65534:65534' \
+    'CMD ["kubectl-service.sh"]' \
+    'COPY LICENSE SECURITY.md ORIGIN.md COMPATIBILITY.md HELM_PATCH_ORIGIN.md MIGRATION.md targets.lock.env kubernetes-upgrade-path.tsv /licenses/' \
+    'FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS tiller-runtime' \
+    'ARG TILLER_IMAGE_VERSION=v2.17.1' \
+    'ARG SOURCE_REVISION=unknown' \
+    'org.opencontainers.image.revision="${SOURCE_REVISION}"' \
+    'COPY --from=helm2-builder /out/tiller /usr/local/bin/tiller' \
+    'COPY --from=helm2-builder /out/HELM-LICENSE /licenses/HELM-LICENSE' \
+    'COPY MIGRATION.md targets.lock.env kubernetes-upgrade-path.tsv /licenses/' \
+    'rm -f /usr/bin/pebble' \
+    'USER 10001:10001' \
+    'ENTRYPOINT ["/usr/local/bin/tiller"]'; do
+    if ! grep -Fq -- "$required" package/Dockerfile; then
+        fail KUBECTL_SERVICE_BUILD_MARKER_MISSING "marker=$required"
+    fi
+done
+
+for required in \
+    'HELM_VERSION' \
+    'HELM_BUILD_VERSION' \
+    'HELM_GIT_COMMIT' \
+    'HELM_PATCH_SHA256' \
+    'HELM_CLIENT_REBUILT_LINUX_AMD64_SHA256' \
+    'TILLER_REBUILT_LINUX_AMD64_SHA256' \
+    'TILLER_TAG' \
+    'TILLER_IMAGE_NAME' \
+    'SOURCE_REVISION' \
+    'source "$repo_root/migration/targets.lock.env"' \
+    'HELM3_BRIDGE_VERSION' \
+    'HELM3_BRIDGE_BUILD_VERSION' \
+    'HELM3_BRIDGE_GIT_COMMIT' \
+    'HELM3_BRIDGE_SOURCE_SHA256' \
+    'HELM3_BRIDGE_LICENSE_SHA256' \
+    'HELM3_BRIDGE_APPLIED_PATCH_SHA256' \
+    'HELM3_BRIDGE_ORAS_GO_VERSION' \
+    'HELM3_BRIDGE_X_TEXT_VERSION' \
+    'HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256' \
+    'HELM2TO3_VERSION' \
+    'HELM2TO3_BUILD_VERSION' \
+    'HELM2TO3_GIT_COMMIT' \
+    'HELM2TO3_SOURCE_SHA256' \
+    'HELM2TO3_LICENSE_SHA256' \
+    'HELM2TO3_APPLIED_PATCH_SHA256' \
+    'HELM2TO3_HELM3_VERSION' \
+    'HELM2TO3_ORAS_GO_VERSION' \
+    'HELM2TO3_X_TEXT_VERSION' \
+    'HELM2TO3_REBUILT_LINUX_AMD64_SHA256' \
+    'HELM4_TARGET_VERSION' \
+    'HELM4_BUILD_VERSION' \
+    'HELM4_TARGET_GIT_COMMIT' \
+    'HELM4_TARGET_SOURCE_SHA256' \
+    'HELM4_TARGET_LICENSE_SHA256' \
+    'HELM4_SECURITY_PATCH_COMMIT' \
+    'HELM4_SECURITY_PATCH_SHA256' \
+    'HELM4_APPLIED_PATCH_SHA256' \
+    'HELM4_ORAS_GO_VERSION' \
+    'HELM4_REBUILT_LINUX_AMD64_SHA256' \
+    'cp ../MIGRATION.md .' \
+    'cp ../migration/targets.lock.env .' \
+    'cp ../migration/kubernetes-upgrade-path.tsv .' \
+    '--target tiller-runtime' \
+    '--target helm-migration-tools-runtime' \
+    'HELM_MIGRATION_IMAGE_NAME' \
+    'HELM_MIGRATION_TAG' \
+    'docker run --rm "${HELM_MIGRATION_IMAGE}"' \
+    '--entrypoint /usr/local/bin/helm3' \
+    '--entrypoint /usr/local/bin/helm2to3' \
+    'helm2to3_help=$(docker run --rm' \
+    '<<< "${helm2to3_help}"' \
+    'docker run --rm --entrypoint /usr/bin/test "${HELM_MIGRATION_IMAGE}" ! -e /usr/bin/pebble' \
+    'trivy is required to package the Helm migration image' \
+    '--scanners vuln,secret' \
+    '--severity CRITICAL,HIGH' \
+    '--exit-code 1' \
+    '--format cyclonedx' \
+    'helm-migration-tools.cdx.json' \
+    'io.pasturestack.execution' \
+    'io.pasturestack.upstream-binaries' \
+    'docker run --rm "${TILLER_IMAGE}" --version' \
+    'KUBERNETES_SOURCE_VERSION' \
+    'KUBERNETES_SERVER_SHA512' \
+    'helm "${IMAGE}" version --client' \
+    'helm "${IMAGE}" init -c' \
+    'helm4 "${IMAGE}" version --short' \
+    '/licenses/HELM4-LICENSE' \
+    '/licenses/HELM4-MODULES.txt' \
+    'helm4_smoke_volume=$(docker volume create)' \
+    'docker volume rm -f "${helm4_smoke_volume}"' \
+    'install pasturestack-smoke /chart' \
+    '--dry-run=client' \
+    '--server-side=false' \
+    'io.pasturestack.helm4.version' \
+    'io.pasturestack.helm4.upstream.version' \
+    'io.pasturestack.helm4.security-patch' \
+    'io.pasturestack.helm4.applied-patch-sha256' \
+    'io.pasturestack.helm4.oras-go.version' \
+    'io.pasturestack.helm2.version' \
+    'io.pasturestack.helm2.upstream.version' \
+    "test \"\$(docker image inspect \"\${IMAGE}\" --format '{{.Config.User}}')\" = \"65534:65534\"" \
+    '--cap-drop ALL' \
+    '--security-opt no-new-privileges:true' \
+    '--entrypoint /usr/bin/kubectl-shell-entry.sh' \
+    '/usr/bin/kubectl-shell.sh test-token' \
+    'kubectl "${IMAGE}" version --client=true --short=true'; do
+    if ! grep -Fq -- "$required" scripts/package; then
+        fail KUBECTL_SERVICE_PACKAGE_SMOKE_MISSING "marker=$required"
+    fi
+done
+if grep -Fq -- '--entrypoint /usr/local/bin/helm2to3 "${HELM_MIGRATION_IMAGE}" --help |' scripts/package; then
+    fail KUBECTL_SERVICE_HELM2TO3_STREAMING_HELP_PIPE_PRESENT
+fi
+
+for active_file in migration/targets.lock.env package/Dockerfile scripts/package scripts/release README.md SECURITY.md COMPATIBILITY.md MIGRATION.md; do
+    if grep -Eq 'v[0-9]+\.[0-9]+\.[0-9]+(-pasturestack\.[0-9]+|\+pasturestack([.-][0-9A-Za-z.-]+)?)' "$active_file"; then
+        fail KUBECTL_SERVICE_ACTIVE_VERSION_SUFFIX_PRESENT "file=${active_file}"
+    fi
+done
+
+if ! grep -Fq 'Helm 2.17.0' SECURITY.md || ! grep -Fq 'Go 1.26.5' SECURITY.md || ! grep -Fq 'Tiller' SECURITY.md; then
+    fail KUBECTL_SERVICE_SECURITY_HELM_COMPAT_DOC_MISSING
+fi
+if ! grep -Fq 'Kubernetes monolithic module' HELM_PATCH_ORIGIN.md || \
+    ! grep -Fq 'github.com/moby/term' HELM_PATCH_ORIGIN.md || \
+    ! grep -Fq 'Apache-2.0' HELM_PATCH_ORIGIN.md; then
+    fail KUBECTL_SERVICE_HELM_PATCH_ORIGIN_DOC_MISSING
+fi
+if ! grep -Fq 'Helm 2' COMPATIBILITY.md || ! grep -Fq 'Helm 2' README.md || ! grep -Fq 'Kubernetes 1.12.10' README.md || ! grep -Fq 'canonical payload' COMPATIBILITY.md; then
+    fail KUBECTL_SERVICE_COMPATIBILITY_DOC_MISSING
+fi
+if ! grep -Fq 'v3.21.3' MIGRATION.md || ! grep -Fq 'v4.2.3' MIGRATION.md || ! grep -Fq 'v0.11.0' migration/targets.lock.env; then
+    fail KUBECTL_SERVICE_MIGRATION_TARGET_DOC_MISSING
+fi
+if ! grep -Fq 'CVE-2026-56852' SECURITY.md || \
+    ! grep -Fq 'CVE-2026-50163' SECURITY.md || \
+    ! grep -Fq 'CVE-2024-41110' SECURITY.md || \
+    ! grep -Fq 'CVE-2025-68121' SECURITY.md || \
+    ! grep -Fq 'CVE-2026-33186' SECURITY.md || \
+    ! grep -Fq 'CVE-2026-39822' SECURITY.md || \
+    ! grep -Fq '/usr/bin/pebble' SECURITY.md || \
+    ! grep -Fq 'source-rebuilt migration image' MIGRATION.md || \
+    ! grep -Fq 'must not be downloaded or executed' MIGRATION.md; then
+    fail KUBECTL_SERVICE_HELM_MIGRATION_BINARY_SECURITY_DOC_MISSING
+fi
+if ! grep -Fq 'PASTURESTACK_HELM_BACKEND=helm4' MIGRATION.md || \
+    ! grep -Fq 'PASTURESTACK_HELM_BACKEND=legacy-helm2' COMPATIBILITY.md || \
+    ! grep -Fq '`--server-side=false`' COMPATIBILITY.md || \
+    ! grep -Fq 'GHSA-q5jf-9vfq-h4h7' SECURITY.md || \
+    ! grep -Fq 'GHSA-vmx8-mqv2-9gmg' SECURITY.md || \
+    ! grep -Fq 'GHSA-fxhp-mv3v-67qp' SECURITY.md || \
+    ! grep -Fq 'GHSA-557j-xg8c-q2mm' SECURITY.md; then
+    fail KUBECTL_SERVICE_HELM4_BACKEND_SECURITY_DOC_MISSING
+fi
+if ! grep -Fq 'legacy-helm2|helm4' package/kubectl-service.sh || \
+    ! grep -Fq 'run_helm4 version --short' package/kubectl-service.sh || \
+    ! grep -Fq 'bash ./tests/test-helm-backend-entrypoint.sh' scripts/validate || \
+    ! grep -Fq 'bash ./tests/test-non-root-runtime.sh' scripts/validate; then
+    fail KUBECTL_SERVICE_HELM_BACKEND_ENTRYPOINT_GATE_MISSING
+fi
+runtime_user=$(awk '$1 == "USER" { user=$2 } END { print user }' package/Dockerfile)
+if [ "${runtime_user}" != '65534:65534' ]; then
+    fail KUBECTL_SERVICE_RUNTIME_USER_DRIFT "actual=${runtime_user:-missing} expected=65534:65534"
+fi
+if grep -Eq '(^|[[:space:]])(chown|su)([[:space:]]|$)' package/kubectl-service.sh; then
+    fail KUBECTL_SERVICE_ROOT_ENTRYPOINT_OPERATION_PRESENT
+fi
+if grep -Eq '(^|[[:space:]])(unshare|mount|chown|su)([[:space:]]|$)' package/kubectl-shell.sh package/shell-setup.sh; then
+    fail KUBECTL_SERVICE_PRIVILEGED_SHELL_OPERATION_PRESENT
+fi
+if grep -Fq '/etc/ca-certificates.conf' package/update-platform-ca || \
+    grep -Eq '(^|[[:space:]])update-ca-certificates([[:space:]]|$)' package/update-platform-ca || \
+    ! grep -Fq 'PRIVATE KEY' package/update-platform-ca || \
+    ! grep -Fq 'ca-bundle.crt' package/update-platform-ca; then
+    fail KUBECTL_SERVICE_USER_CA_BUNDLE_GATE_MISSING
+fi
+if ! grep -Fq 'exactly 24 consecutive checkpoints' MIGRATION.md || \
+    ! grep -Fq 'KUBERNETES_UPGRADE_STEP_COUNT=24' migration/targets.lock.env || \
+    ! grep -Fq $'36\tv1.36.3\t0f29094e5b73085e3802ecc1298ecae13866bfe6\t401f6286a17a37b0a546c87d6ba294bc6cee9f54095cf4c793162110e501b02a\tSUPPORTED' migration/kubernetes-upgrade-path.tsv; then
+    fail KUBECTL_SERVICE_KUBERNETES_UPGRADE_PATH_LOCK_MISSING
+fi
+if ! grep -Fqx '*.env text eol=lf' .gitattributes || \
+    ! grep -Fqx '*.lock text eol=lf' .gitattributes || \
+    ! grep -Fqx '*.tsv text eol=lf' .gitattributes; then
+    fail KUBECTL_SERVICE_MIGRATION_LOCK_LINE_ENDING_POLICY_MISSING
+fi
+security_workflow=.github/workflows/security-release-gate.yml
+if [ ! -f "${security_workflow}" ]; then
+    fail KUBECTL_SERVICE_MANUAL_SECURITY_WORKFLOW_MISSING
+else
+    for required in \
+        'workflow_dispatch:' \
+        'permissions:' \
+        'contents: read' \
+        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' \
+        'persist-credentials: false' \
+        'VERSION_OVERRIDE: v0.9.12' \
+        'make ci' \
+        '--vex /workspace/security/openvex.json' \
+        'DAPPER-UBUNTU-APT-PACKAGES.tsv' \
+        'TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv' \
+        'dist/*.tsv' \
+        'dist/*.lock' \
+        'sha256sum dist/*.json dist/*.tsv dist/*.lock' \
+        'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' \
+        'retention-days: 7'; do
+        if ! grep -Fq -- "${required}" "${security_workflow}"; then
+            fail KUBECTL_SERVICE_MANUAL_SECURITY_WORKFLOW_MARKER_MISSING "marker=${required}"
+        fi
+    done
+    if grep -Eq 'uses:[^#]+@(main|master|v[0-9]+|[0-9]+\.[0-9]+)' "${security_workflow}"; then
+        fail KUBECTL_SERVICE_UNPINNED_WORKFLOW_ACTION_PRESENT
+    fi
+    if grep -Eq '^[[:space:]]+(push|pull_request|pull_request_target|schedule):' "${security_workflow}"; then
+        fail KUBECTL_SERVICE_AUTOMATIC_SECURITY_WORKFLOW_TRIGGER_PRESENT
+    fi
+fi
+if ! bash scripts/check-migration-targets --offline >/dev/null; then
+    fail KUBECTL_SERVICE_MIGRATION_LOCK_OFFLINE_VALIDATION_FAILED
+fi
+
+if [ "$failures" -ne 0 ]; then
+    echo "failure_count=$failures"
+    exit 1
+fi
+
+echo "KUBECTL_SERVICE_HELM2_CLIENT_AND_TILLER_BASELINE_OK upstream=${expected_version} build=${expected_build_version} go=${expected_go} source_commit=${expected_helm_commit} client_binary_sha256=${expected_helm_client_binary_sha256} tiller_binary_sha256=${expected_tiller_binary_sha256}"
+echo "KUBECTL_SERVICE_HELM_MIGRATION_TOOLS_BASELINE_OK helm3_upstream=${expected_helm3_version} helm3_build=${expected_helm3_build_version} helm3_commit=${expected_helm3_commit} helm3_source_sha256=${expected_helm3_source_sha256} helm3_patch_sha256=${expected_helm3_patch_sha256} helm3_binary_sha256=${expected_helm3_binary_sha256} helm2to3_upstream=${expected_helm2to3_version} helm2to3_build=${expected_helm2to3_build_version} helm2to3_commit=${expected_helm2to3_commit} helm2to3_source_sha256=${expected_helm2to3_source_sha256} helm2to3_patch_sha256=${expected_helm2to3_patch_sha256} helm2to3_binary_sha256=${expected_helm2to3_binary_sha256} go=${HELM_MIGRATION_GO_VERSION}"
+echo "KUBECTL_SERVICE_HELM4_RUNTIME_BASELINE_OK upstream=${expected_helm4_version} build=${expected_helm4_build_version} source_commit=${expected_helm4_commit} source_sha256=${expected_helm4_source_sha256} security_patch=${expected_helm4_security_patch_commit} upstream_patch_sha256=${expected_helm4_security_patch_sha256} applied_patch_sha256=${expected_helm4_applied_patch_sha256} binary_sha256=${expected_helm4_binary_sha256} oras_go=${expected_helm4_oras_go_version} license_sha256=${expected_helm4_license_sha256} official_archive_sha256=${expected_helm4_archive_sha256}"
+echo "KUBECTL_SERVICE_KUBERNETES_ARCHIVE_OK kubernetes=${expected_kubernetes_version} commit=${expected_kubernetes_commit} sha512=${expected_kubernetes_sha512}"
+echo "KUBECTL_SERVICE_BUILD_DOCKER_CLI_OK image=${expected_docker_cli_image}"
+echo "Helm 2 is still a compatibility-gated protocol dependency; this gate enforces the Go 1.26.5 source build for both the client and non-root Tiller runtime, prevents reintroducing the official Go 1.14-built tarball, and rejects incompatible kubectl 1.36 builds."
+echo "failure_count=0"

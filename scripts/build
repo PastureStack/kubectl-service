@@ -1,9 +1,11 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 source $(dirname $0)/version
 
 cd $(dirname $0)/..
 
 mkdir -p bin
-CGO_ENABLED=0 go build -tags netgo -ldflags "-X main.VERSION=$VERSION -linkmode external -extldflags -static" -o bin/kubectld main.go
+CGO_ENABLED=0 go build -tags "netgo osusergo" -trimpath -buildvcs=false \
+    -ldflags "-s -w -X main.VERSION=$VERSION" \
+    -o bin/kubectl-service main.go

@@ -1,0 +1,42 @@
+diff --git a/go.mod b/go.mod
+--- a/go.mod
++++ b/go.mod
+@@ -43,7 +43,7 @@ require (
+ 	github.com/docker/cli v29.6.2+incompatible
+ 	github.com/docker/go-units v0.5.0
+ 	github.com/fatih/color v1.19.0
+-	github.com/go-git/go-git/v5 v5.19.1
++	github.com/go-git/go-git/v5 v5.19.2
+ 	github.com/go-viper/mapstructure/v2 v2.5.0
+ 	github.com/gocsaf/csaf/v3 v3.5.1
+ 	github.com/golang-jwt/jwt/v5 v5.3.1
+@@ -469,7 +469,7 @@ require (
+ 	modernc.org/memory v1.11.0 // indirect
+ 	mvdan.cc/sh/v3 v3.12.0 // indirect
+ 	mvdan.cc/xurls/v2 v2.6.0 // indirect
+-	oras.land/oras-go/v2 v2.6.1 // indirect
++	oras.land/oras-go/v2 v2.6.2 // indirect
+ 	pluginrpc.com/pluginrpc v0.5.0 // indirect
+ 	sigs.k8s.io/controller-runtime v0.24.1 // indirect
+ 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
+diff --git a/go.sum b/go.sum
+--- a/go.sum
++++ b/go.sum
+@@ -420,6 +420,8 @@
+ github.com/go-git/go-git-fixtures/v4 v4.3.2-0.20231010084843-55a94097c399/go.mod h1:1OCfN199q1Jm3HZlxleg+Dw/mwps2Wbk9frAWm+4FII=
+ github.com/go-git/go-git/v5 v5.19.1 h1:nX27AnaU43/K5bKktKwgBmR9lawoYVe1Ckg0rgzzN00=
+ github.com/go-git/go-git/v5 v5.19.1/go.mod h1:Pb1v0c7/g8aGQJwx9Us09W85yGoyvSwuhEGMH7zjDKQ=
++github.com/go-git/go-git/v5 v5.19.2 h1:wkfn7vOlUBu8ivAWKBWisTiwJK4jYHzTF8Ndv1LyGqY=
++github.com/go-git/go-git/v5 v5.19.2/go.mod h1:QqCBE1EFN5ddFmrliLQ3/ntRCUjZU3EJuwuB/jWEHjk=
+ github.com/go-gorp/gorp/v3 v3.1.0 h1:ItKF/Vbuj31dmV4jxA1qblpSwkl9g1typ24xoe70IGs=
+ github.com/go-gorp/gorp/v3 v3.1.0/go.mod h1:dLEjIyyRNiXvNZ8PSmzpt1GsWAUK8kjVhEpjH8TixEw=
+ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz3kA=
+@@ -1343,6 +1343,8 @@
+ mvdan.cc/xurls/v2 v2.6.0/go.mod h1:bCvEZ1XvdA6wDnxY7jPPjEmigDtvtvPXAD/Exa9IMSk=
+ oras.land/oras-go/v2 v2.6.1 h1:bonOEkjLfp8tt6qXWRRWP6p1F+9octchOf2EqnWB4Zs=
+ oras.land/oras-go/v2 v2.6.1/go.mod h1:dhtFrFOuZuDtAVeZ9FUnaa5zfzplG3ZnFX9/uH1J/Yk=
++oras.land/oras-go/v2 v2.6.2 h1:N04RXngAp1LJKTG6ifz3xHPipasEkWr+hFmInja5YKo=
++oras.land/oras-go/v2 v2.6.2/go.mod h1:PlTtg4JTDJkDe8yVHpM2wz7/YDc00GVas+i4jAW2TZ4=
+ pgregory.net/rapid v1.2.0 h1:keKAYRcjm+e1F0oAuU5F5+YPAWcyxNNRK2wud503Gnk=
+ pgregory.net/rapid v1.2.0/go.mod h1:PY5XlDGj0+V1FCq0o192FdRhpKHGTRIWBgqjDBTrq04=
+ pluginrpc.com/pluginrpc v0.5.0 h1:tOQj2D35hOmvHyPu8e7ohW2/QvAnEtKscy2IJYWQ2yo=
