@@ -1,16 +1,130 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-source $(dirname $0)/version
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
+source "$repo_root/scripts/version"
+# shellcheck disable=SC1091
+source "$repo_root/migration/targets.lock.env"
 
-cd $(dirname $0)/../package
+if [ -z "${SOURCE_REVISION:-}" ]; then
+    SOURCE_REVISION=$(git -C "$repo_root" rev-parse HEAD)
+    if [ -n "$(git -C "$repo_root" status --porcelain)" ]; then
+        SOURCE_REVISION="${SOURCE_REVISION}-dirty"
+    fi
+fi
+if ! [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}(-dirty)?$ ]]; then
+    echo "SOURCE_REVISION must be a full Git commit, optionally suffixed with -dirty for a local candidate" >&2
+    exit 1
+fi
+
+cd "$repo_root/package"
 
 TAG=${TAG:-${VERSION}}
-REPO=${REPO:-rancher}
+REPO=${REPO:-pasturestack}
+IMAGE_REPOSITORY=${IMAGE_NAME:-${REPO}/kubectl-service}
+TILLER_TAG=${TILLER_TAG:-v2.17.0-pasturestack.2}
+TILLER_IMAGE_REPOSITORY=${TILLER_IMAGE_NAME:-${REPO}/tiller}
+if [[ "${IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    IMAGE="${IMAGE_REPOSITORY}"
+else
+    IMAGE="${IMAGE_REPOSITORY}:${TAG}"
+fi
+if [[ "${TILLER_IMAGE_REPOSITORY##*/}" == *:* ]]; then
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}"
+else
+    TILLER_IMAGE="${TILLER_IMAGE_REPOSITORY}:${TILLER_TAG}"
+fi
 
-cp ../bin/kubectld .
+cp ../bin/kubectl-service .
+cp ../LICENSE .
+cp ../SECURITY.md .
+cp ../ORIGIN.md .
+cp ../COMPATIBILITY.md .
+cp ../HELM_PATCH_ORIGIN.md .
+cp ../MIGRATION.md .
+cp ../migration/targets.lock.env .
+cp ../migration/kubernetes-upgrade-path.tsv .
 
-IMAGE=${REPO}/kubectld:${TAG}
-docker build -t ${IMAGE} .
-echo ${IMAGE} > ../dist/images
-echo Built ${IMAGE}
+build_args=()
+for arg in \
+    UBUNTU_MIRROR \
+    KUBERNETES_VERSION \
+    KUBERNETES_SERVER_SHA256 \
+    GO_VERSION \
+    GO_SHA256_amd64 \
+    HELM_VERSION \
+    HELM_GIT_COMMIT \
+    HELM_PATCH_SHA256 \
+    HELM4_TARGET_VERSION \
+    HELM4_TARGET_GIT_COMMIT \
+    HELM4_TARGET_SOURCE_SHA256 \
+    HELM4_TARGET_LICENSE_SHA256 \
+    HELM4_SECURITY_PATCH_COMMIT \
+    HELM4_SECURITY_PATCH_SHA256 \
+    HELM4_APPLIED_PATCH_SHA256 \
+    HELM4_ORAS_GO_VERSION; do
+    value="${!arg:-}"
+    if [ -n "${value}" ]; then
+        build_args+=(--build-arg "${arg}=${value}")
+    fi
+done
+build_args+=(--build-arg "SOURCE_REVISION=${SOURCE_REVISION}")
+if [ -n "${DOCKER_BUILD_NETWORK:-}" ]; then
+    build_args+=(--network "${DOCKER_BUILD_NETWORK}")
+fi
+
+docker build "${build_args[@]}" \
+    --build-arg "IMAGE_VERSION=${TAG}" \
+    -t "${IMAGE}" .
+docker build "${build_args[@]}" \
+    --build-arg "TILLER_IMAGE_VERSION=${TILLER_TAG}" \
+    --target tiller-runtime \
+    -t "${TILLER_IMAGE}" .
+
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" version --client
+docker run --rm --entrypoint /usr/bin/helm "${IMAGE}" init -c
+helm4_version=$(docker run --rm --entrypoint /usr/bin/helm4 "${IMAGE}" version --short)
+grep -Fq "${HELM4_TARGET_VERSION}+pasturestack.oras-go-${HELM4_ORAS_GO_VERSION#v}" <<< "${helm4_version}"
+helm4_build=$(docker run --rm --entrypoint /usr/bin/helm4 "${IMAGE}" version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }}')
+test "${helm4_build}" = "${HELM4_TARGET_VERSION}+pasturestack.oras-go-${HELM4_ORAS_GO_VERSION#v} ${HELM4_TARGET_GIT_COMMIT} clean"
+helm4_oras_version=$(docker run --rm --entrypoint /usr/bin/awk "${IMAGE}" '$1 == "dep" && $2 == "oras.land/oras-go/v2" {print $3}' /licenses/HELM4-MODULES.txt)
+test "${helm4_oras_version}" = "${HELM4_ORAS_GO_VERSION}"
+helm4_license_sha=$(docker run --rm --entrypoint /usr/bin/sha256sum "${IMAGE}" /licenses/HELM4-LICENSE | awk '{print $1}')
+test "${helm4_license_sha}" = "${HELM4_TARGET_LICENSE_SHA256}"
+helm4_smoke_volume=$(docker volume create)
+cleanup_helm4_smoke() {
+    docker volume rm -f "${helm4_smoke_volume}" >/dev/null 2>&1 || true
+}
+trap cleanup_helm4_smoke EXIT
+docker run --rm \
+    --user 0:0 \
+    -v "${helm4_smoke_volume}:/chart" \
+    --entrypoint /bin/sh "${IMAGE}" \
+    -c "printf 'apiVersion: v2\\nname: pasturestack-smoke\\nversion: 0.1.0\\n' > /chart/Chart.yaml"
+helm4_rendered=$(docker run --rm \
+    -v "${helm4_smoke_volume}:/chart:ro" \
+    --entrypoint /usr/bin/helm4 "${IMAGE}" \
+    install pasturestack-smoke /chart \
+    --dry-run=client \
+    --server-side=false \
+    --color=never \
+    --namespace pasturestack-smoke)
+grep -Fq 'NAME: pasturestack-smoke' <<< "${helm4_rendered}"
+docker run --rm --entrypoint /usr/bin/kubectl "${IMAGE}" version --client=true --short=true
+docker run --rm "${TILLER_IMAGE}" --version
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{.Config.User}}')" = "10001:10001"
+for image in "${IMAGE}" "${TILLER_IMAGE}"; do
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/PastureStack/kubectl-service"
+    test "$(docker image inspect "${image}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "${SOURCE_REVISION}"
+done
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TAG}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.version"}}')" = "${HELM4_TARGET_VERSION}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.security-patch"}}')" = "${HELM4_SECURITY_PATCH_COMMIT}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.applied-patch-sha256"}}')" = "${HELM4_APPLIED_PATCH_SHA256}"
+test "$(docker image inspect "${IMAGE}" --format '{{index .Config.Labels "io.pasturestack.helm4.oras-go.version"}}')" = "${HELM4_ORAS_GO_VERSION}"
+test "$(docker image inspect "${TILLER_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "${TILLER_TAG}"
+
+mkdir -p ../dist
+printf '%s\n%s\n' "${IMAGE}" "${TILLER_IMAGE}" > ../dist/images
+echo "Built ${IMAGE} and ${TILLER_IMAGE} from ${SOURCE_REVISION}"

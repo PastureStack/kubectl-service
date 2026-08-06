@@ -1,11 +1,12 @@
 package helm
 
-import (
-	"time"
-)
+import "time"
 
 const (
-	cmd = "helm"
+	legacyHelm2Command     = "helm"
+	helm4Command           = "helm4"
+	LegacyHelm2BackendName = "legacy-helm2"
+	Helm4BackendName       = "helm4"
 )
 
 type Stack struct {
@@ -16,6 +17,7 @@ type Stack struct {
 
 type Release struct {
 	Name      string                 `json:"name" yaml:"name"`
+	Namespace string                 `json:"namespace" yaml:"namespace"`
 	Chart     string                 `json:"chart" yaml:"chart"`
 	Revision  int                    `json:"revision" yaml:"revision"`
 	Status    string                 `json:"status" yaml:"status"`
