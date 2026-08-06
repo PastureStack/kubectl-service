@@ -1,11 +1,10 @@
 package helm
 
-import (
-	"time"
-)
+import "time"
 
 const (
-	cmd = "helm"
+	legacyHelm2Command     = "helm"
+	LegacyHelm2BackendName = "legacy-helm2"
 )
 
 type Stack struct {

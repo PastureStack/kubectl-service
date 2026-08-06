@@ -3,5 +3,13 @@
 /dist
 *.swp
 /.trash-cache
-/package/kubectld
-kubectld
+/package/kubectl-service
+/package/LICENSE
+/package/SECURITY.md
+/package/ORIGIN.md
+/package/COMPATIBILITY.md
+/package/HELM_PATCH_ORIGIN.md
+/package/MIGRATION.md
+/package/targets.lock.env
+/package/UNOFFICIAL_MAINTENANCE_FORK.md
+kubectl-service

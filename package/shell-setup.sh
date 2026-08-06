@@ -1,13 +1,13 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-token=$1
+token=${KUBECTL_SHELL_TOKEN:-${1:-}}
 
 mkdir -p /nonexistent
 mount -t tmpfs tmpfs /nonexistent
 cd /nonexistent
 
-mkdir .kube
+mkdir -m 700 .kube
 cat <<EOF > .kube/config
 apiVersion: v1
 kind: Config
@@ -15,7 +15,7 @@ clusters:
 - cluster:
     api-version: v1
     certificate-authority: /etc/kubernetes/ssl/ca.pem
-    server: "https://kubernetes.kubernetes.rancher.internal:6443"
+    server: "${KUBERNETES_URL:-https://kubernetes.kubernetes.pasturestack.internal:6443}"
   name: "Default"
 contexts:
 - context:
@@ -26,7 +26,7 @@ current-context: "Default"
 users:
 - name: "Default"
   user:
-    token: "$(echo -n $token | base64)"
+    token: "$(printf '%s' "$token" | base64)"
 EOF
 
 cp /etc/skel/.bashrc .
@@ -37,11 +37,13 @@ alias k="kubectl"
 alias ks="kubectl -n kube-system"
 EOF
 
-chmod 777 .kube .bashrc
-chmod 666 .kube/config
+chown -R nobody:nogroup .kube .bashrc
+chmod 700 .kube
+chmod 600 .kube/config .bashrc
 
-for i in $(env | cut -d "=" -f 1 | grep "CATTLE\|RANCHER"); do
-    unset $i
+for i in $(env | cut -d "=" -f 1 | grep "CATTLE\|RANCHER" || true); do
+    unset "$i"
 done
 
+unset KUBECTL_SHELL_TOKEN token
 exec su -s /bin/bash nobody

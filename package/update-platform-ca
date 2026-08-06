@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+
+preferred_ca_root="${PLATFORM_CA_ROOT:-/var/lib/pasturestack/etc/ssl/ca.crt}"
+legacy_ca_root="/var/lib/rancher/etc/ssl/ca.crt"
+ca_root="${preferred_ca_root}"
+
+if [ ! -f "${ca_root}" ] && [ -f "${legacy_ca_root}" ]; then
+  ca_root="${legacy_ca_root}"
+fi
+
+certificate_dir="/usr/share/ca-certificates/pasturestack"
+certificate_file="${certificate_dir}/ca.crt"
+certificate_entry="pasturestack/ca.crt"
+
+if [ -f "${ca_root}" ] && [ ! -e "${certificate_file}" ]; then
+  echo "Adding the control-platform CA certificate."
+  mkdir -p "${certificate_dir}"
+  cp "${ca_root}" "${certificate_file}"
+  if ! grep -Fxq "${certificate_entry}" /etc/ca-certificates.conf; then
+    echo "${certificate_entry}" >> /etc/ca-certificates.conf
+  fi
+  update-ca-certificates
+fi
