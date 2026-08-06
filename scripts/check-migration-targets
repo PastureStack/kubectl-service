@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+lock_file="$repo_root/migration/targets.lock.env"
+mode=${1:---offline}
+
+case "$mode" in
+    --offline|--online|--download) ;;
+    *)
+        echo "usage: $0 [--offline|--online|--download]" >&2
+        exit 2
+        ;;
+esac
+
+# shellcheck disable=SC1090
+source "$lock_file"
+
+required_variables=(
+    HELM3_BRIDGE_VERSION HELM3_BRIDGE_GIT_COMMIT HELM3_BRIDGE_LINUX_AMD64_SHA256
+    HELM4_TARGET_VERSION HELM4_TARGET_GIT_COMMIT HELM4_TARGET_LINUX_AMD64_SHA256
+    HELM2TO3_VERSION HELM2TO3_GIT_COMMIT HELM2TO3_LINUX_AMD64_SHA256
+    KUBERNETES_TARGET_VERSION KUBERNETES_TARGET_GIT_COMMIT
+)
+for name in "${required_variables[@]}"; do
+    value=${!name:-}
+    if [ -z "$value" ]; then
+        echo "missing migration lock variable: $name" >&2
+        exit 1
+    fi
+done
+
+for name in HELM3_BRIDGE_GIT_COMMIT HELM4_TARGET_GIT_COMMIT HELM2TO3_GIT_COMMIT KUBERNETES_TARGET_GIT_COMMIT; do
+    if ! [[ "${!name}" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "invalid full Git commit in $name" >&2
+        exit 1
+    fi
+done
+for name in HELM3_BRIDGE_LINUX_AMD64_SHA256 HELM4_TARGET_LINUX_AMD64_SHA256 HELM2TO3_LINUX_AMD64_SHA256; do
+    if ! [[ "${!name}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "invalid SHA-256 in $name" >&2
+        exit 1
+    fi
+done
+
+[[ "$HELM3_BRIDGE_VERSION" =~ ^v3\. ]]
+[[ "$HELM4_TARGET_VERSION" =~ ^v4\. ]]
+[[ "$HELM2TO3_VERSION" == "v0.11.0" ]]
+[[ "$KUBERNETES_TARGET_VERSION" =~ ^v1\. ]]
+
+if [ "$mode" = "--offline" ]; then
+    echo "KUBECTL_SERVICE_MIGRATION_TARGETS_OFFLINE_OK helm3=${HELM3_BRIDGE_VERSION} helm4=${HELM4_TARGET_VERSION} kubernetes=${KUBERNETES_TARGET_VERSION}"
+    exit 0
+fi
+
+for command in curl git sha256sum awk; do
+    command -v "$command" >/dev/null 2>&1 || {
+        echo "required command not found: $command" >&2
+        exit 1
+    }
+done
+
+temporary_directory=$(mktemp -d)
+cleanup() {
+    rm -rf -- "$temporary_directory"
+}
+trap cleanup EXIT
+
+curl_flags=(--fail --silent --show-error --location --retry 5 --retry-all-errors --connect-timeout 10 --max-time 300)
+
+official_helm3_sha=$(curl "${curl_flags[@]}" "https://get.helm.sh/helm-${HELM3_BRIDGE_VERSION}-linux-amd64.tar.gz.sha256sum" | awk 'NR == 1 {print $1}')
+official_helm4_sha=$(curl "${curl_flags[@]}" "https://get.helm.sh/helm-${HELM4_TARGET_VERSION}-linux-amd64.tar.gz.sha256sum" | awk 'NR == 1 {print $1}')
+official_2to3_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm-2to3/releases/download/${HELM2TO3_VERSION}/checksums.txt" | awk '$2 == "helm-2to3_0.11.0_linux_amd64.tar.gz" {print $1}')
+
+test "$official_helm3_sha" = "$HELM3_BRIDGE_LINUX_AMD64_SHA256"
+test "$official_helm4_sha" = "$HELM4_TARGET_LINUX_AMD64_SHA256"
+test "$official_2to3_sha" = "$HELM2TO3_LINUX_AMD64_SHA256"
+
+resolve_tag_commit() {
+    local repository=$1
+    local tag=$2
+    local refs
+    refs=$(git -C "$temporary_directory" ls-remote --tags "$repository" "refs/tags/${tag}" "refs/tags/${tag}^{}")
+    local peeled
+    peeled=$(printf '%s\n' "$refs" | awk '$2 ~ /\^\{\}$/ {print $1; exit}')
+    if [ -n "$peeled" ]; then
+        printf '%s\n' "$peeled"
+    else
+        printf '%s\n' "$refs" | awk 'NR == 1 {print $1}'
+    fi
+}
+
+test "$(resolve_tag_commit https://github.com/helm/helm.git "$HELM3_BRIDGE_VERSION")" = "$HELM3_BRIDGE_GIT_COMMIT"
+test "$(resolve_tag_commit https://github.com/helm/helm.git "$HELM4_TARGET_VERSION")" = "$HELM4_TARGET_GIT_COMMIT"
+test "$(resolve_tag_commit https://github.com/helm/helm-2to3.git "$HELM2TO3_VERSION")" = "$HELM2TO3_GIT_COMMIT"
+test "$(resolve_tag_commit https://github.com/kubernetes/kubernetes.git "$KUBERNETES_TARGET_VERSION")" = "$KUBERNETES_TARGET_GIT_COMMIT"
+
+if [ "$mode" = "--download" ]; then
+    helm3_archive="$temporary_directory/helm-${HELM3_BRIDGE_VERSION}-linux-amd64.tar.gz"
+    helm4_archive="$temporary_directory/helm-${HELM4_TARGET_VERSION}-linux-amd64.tar.gz"
+    migration_archive="$temporary_directory/helm-2to3_0.11.0_linux_amd64.tar.gz"
+    curl "${curl_flags[@]}" -o "$helm3_archive" "https://get.helm.sh/$(basename "$helm3_archive")"
+    curl "${curl_flags[@]}" -o "$helm4_archive" "https://get.helm.sh/$(basename "$helm4_archive")"
+    curl "${curl_flags[@]}" -o "$migration_archive" "https://github.com/helm/helm-2to3/releases/download/${HELM2TO3_VERSION}/$(basename "$migration_archive")"
+    printf '%s  %s\n' "$HELM3_BRIDGE_LINUX_AMD64_SHA256" "$helm3_archive" | sha256sum -c -
+    printf '%s  %s\n' "$HELM4_TARGET_LINUX_AMD64_SHA256" "$helm4_archive" | sha256sum -c -
+    printf '%s  %s\n' "$HELM2TO3_LINUX_AMD64_SHA256" "$migration_archive" | sha256sum -c -
+fi
+
+echo "KUBECTL_SERVICE_MIGRATION_TARGETS_${mode#--}_OK helm3=${HELM3_BRIDGE_VERSION} helm4=${HELM4_TARGET_VERSION} kubernetes=${KUBERNETES_TARGET_VERSION}"

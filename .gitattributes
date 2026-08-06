@@ -1,0 +1,14 @@
+* text=auto
+.gitattributes text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+scripts/* text eol=lf
+package/* text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+Dockerfile* text eol=lf
+Makefile text eol=lf
+/*.go text eol=lf
+cli/*.go text eol=lf
+events/*.go text eol=lf
+helm/*.go text eol=lf
+kubectl/*.go text eol=lf

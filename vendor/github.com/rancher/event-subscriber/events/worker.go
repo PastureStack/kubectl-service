@@ -3,7 +3,7 @@ package events
 import (
 	"encoding/json"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/rancher/event-subscriber/locks"
 	"github.com/rancher/go-rancher/client"
 )

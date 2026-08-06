@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
+
+failures=0
+expected_version="v2.17.0"
+expected_go="1.26.5"
+expected_helm_commit="a690bad98af45b015bd3da1a41f6218b1a451dbe"
+expected_helm_patch_sha256="3bdf5475025db4d76afad26272f4848b2604c6e0e547b3aaf8243b48e16a9735"
+expected_kubernetes_version="v1.12.10-rancher1"
+expected_kubernetes_sha256="f3df06f9bf2e4c4e8b5aba16d44197e26672aa06e8c24ab9f6ab4eaf64ab068e"
+expected_docker_cli_image="docker:29.6.2-cli@sha256:be132a9f282288de4afaf63379dff75711fda0147c6b72a9df44e51841402144"
+
+fail() {
+    local code=$1
+    shift || true
+    echo "$code $*" | sed 's/[[:space:]]*$//'
+    failures=$((failures + 1))
+}
+
+if ! grep -qx "ARG HELM_VERSION=${expected_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_VERSION_DRIFT "actual=${actual:-missing} expected=ARG HELM_VERSION=${expected_version}"
+fi
+if ! grep -qx "ARG GO_VERSION=${expected_go}" package/Dockerfile; then
+    actual=$(grep -E '^ARG GO_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_GO_VERSION_DRIFT "actual=${actual:-missing} expected=ARG GO_VERSION=${expected_go}"
+fi
+if ! grep -qx "ARG HELM_GIT_COMMIT=${expected_helm_commit}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_GIT_COMMIT=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_COMMIT_DRIFT "actual=${actual:-missing} expected=ARG HELM_GIT_COMMIT=${expected_helm_commit}"
+fi
+if ! grep -qx "ARG HELM_PATCH_SHA256=${expected_helm_patch_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG HELM_PATCH_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_HELM2_PATCH_DRIFT "actual=${actual:-missing} expected=ARG HELM_PATCH_SHA256=${expected_helm_patch_sha256}"
+fi
+
+if grep -Fq 'github.com/dgrijalva/jwt-go' package/helm-v2.17.0.go.mod; then
+    fail KUBECTL_SERVICE_TILLER_RETIRED_JWT_LOCK_PRESENT "module=github.com/dgrijalva/jwt-go"
+fi
+
+if ! grep -Fq 'github.com/prometheus/client_golang v1.24.1' package/helm-v2.17.0.go.mod; then
+    fail KUBECTL_SERVICE_TILLER_PROMETHEUS_LOCK_DRIFT "expected=github.com/prometheus/client_golang_v1.24.1"
+fi
+
+if ! grep -Fq 'diff --git a/cmd/tiller/tiller.go b/cmd/tiller/tiller.go' package/helm-v2.17.0-pasturestack.patch; then
+    fail KUBECTL_SERVICE_TILLER_CLOUD_AUTH_PATCH_MISSING "path=cmd/tiller/tiller.go"
+fi
+if ! grep -qx "ARG KUBERNETES_VERSION=${expected_kubernetes_version}" package/Dockerfile; then
+    actual=$(grep -E '^ARG KUBERNETES_VERSION=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_KUBERNETES_VERSION_DRIFT "actual=${actual:-missing} expected=ARG KUBERNETES_VERSION=${expected_kubernetes_version}"
+fi
+if ! grep -qx "ARG KUBERNETES_SERVER_SHA256=${expected_kubernetes_sha256}" package/Dockerfile; then
+    actual=$(grep -E '^ARG KUBERNETES_SERVER_SHA256=' package/Dockerfile || true)
+    fail KUBECTL_SERVICE_KUBERNETES_ARCHIVE_SHA256_DRIFT "actual=${actual:-missing} expected=ARG KUBERNETES_SERVER_SHA256=${expected_kubernetes_sha256}"
+fi
+if grep -qE 'helm-v2\.3\.0|ARG HELM_VERSION=v2\.3\.0' package/Dockerfile; then
+    fail KUBECTL_SERVICE_HELM230_MARKER_PRESENT
+fi
+if grep -qE 'get\.helm\.sh|HELM_SHA256|helm-\$\{HELM_VERSION\}-linux-amd64' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_OFFICIAL_HELM_TARBALL_PATH_PRESENT
+fi
+if grep -qE 'glide install|Masterminds/glide|GLIDE_' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_FULL_GIT_DEPENDENCY_FETCH_PRESENT
+fi
+if grep -qE 'ARG KUBECTL_VERSION=v1\.36|KUBECTL_GIT_COMMIT|kubernetes/kubernetes.*/go build|component-base/version\.gitMinor=36' package/Dockerfile scripts/package Makefile; then
+    fail KUBECTL_SERVICE_INCOMPATIBLE_KUBECTL_BUILD_PRESENT
+fi
+if ! grep -qx "FROM ${expected_docker_cli_image} AS docker-cli" Dockerfile.dapper; then
+    actual=$(grep -E '^FROM docker:' Dockerfile.dapper || true)
+    fail KUBECTL_SERVICE_DOCKER_CLI_IMAGE_DRIFT "actual=${actual:-missing} expected=${expected_docker_cli_image}"
+fi
+if ! grep -Fqx 'COPY --from=docker-cli /usr/local/bin/docker /usr/bin/docker' Dockerfile.dapper; then
+    fail KUBECTL_SERVICE_DOCKER_CLI_COPY_MISSING
+fi
+if grep -qE 'download\.docker\.com/.+docker-\$\{DOCKER_VERSION\}\.tgz|ARG DOCKER_VERSION=' Dockerfile.dapper Makefile; then
+    fail KUBECTL_SERVICE_UNVERIFIED_DOCKER_TARBALL_PRESENT
+fi
+
+for required in \
+    'FROM ubuntu:26.04 AS helm2-builder' \
+    'FROM ubuntu:26.04 AS kubectl-extractor' \
+    'COPY helm-v2.17.0.go.mod /tmp/helm-lock/test.go.mod' \
+    'COPY helm-v2.17.0.go.sum /tmp/helm-lock/test.go.sum' \
+    'COPY helm-v2.17.0-client.go.mod /tmp/helm-lock/client.go.mod' \
+    'COPY helm-v2.17.0-client.go.sum /tmp/helm-lock/client.go.sum' \
+    'COPY helm-v2.17.0-pasturestack.patch /tmp/helm-lock/helm-v2.17.0-pasturestack.patch' \
+    'git clone --depth 1 --branch "${HELM_VERSION}"' \
+    'git apply --check /tmp/helm-lock/helm-v2.17.0-pasturestack.patch' \
+    'go mod download' \
+    'go mod verify' \
+    'go test ./pkg/kube ./pkg/pasturestack/printers' \
+    'CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false' \
+    '-o /out/tiller ./cmd/tiller' \
+    'cp LICENSE /out/HELM-LICENSE' \
+    "go version -m /out/tiller | grep -F 'github.com/prometheus/client_golang' | grep -Fq 'v1.24.1'" \
+    '/out/tiller --version' \
+    "! go version -m /out/helm | grep -Fq 'k8s.io/kubernetes'" \
+    "! go version -m /out/helm | grep -Fq 'github.com/dgrijalva/jwt-go'" \
+    "! go version -m /out/helm | grep -Fq 'github.com/prometheus/client_golang'" \
+    "go version -m /out/helm | grep -Fq 'github.com/moby/term'" \
+    "go version -m /out/helm | grep -Fq 'google.golang.org/grpc'" \
+    'go build -mod=readonly -trimpath -buildvcs=false' \
+    'kubernetes-server-linux-amd64.tar.gz' \
+    'echo "${KUBERNETES_SERVER_SHA256}  /tmp/kubernetes-server.tgz" | sha256sum -c -' \
+    'COPY --from=kubectl-extractor /out/kubectl /usr/bin/kubectl' \
+    'COPY --from=helm2-builder /out/helm /usr/bin/helm' \
+    'COPY LICENSE SECURITY.md ORIGIN.md COMPATIBILITY.md HELM_PATCH_ORIGIN.md MIGRATION.md targets.lock.env /licenses/' \
+    'FROM ubuntu:26.04 AS tiller-runtime' \
+    'ARG TILLER_IMAGE_VERSION=v2.17.0-pasturestack.2' \
+    'ARG SOURCE_REVISION=unknown' \
+    'org.opencontainers.image.revision="${SOURCE_REVISION}"' \
+    'COPY --from=helm2-builder /out/tiller /usr/local/bin/tiller' \
+    'COPY --from=helm2-builder /out/HELM-LICENSE /licenses/HELM-LICENSE' \
+    'COPY MIGRATION.md targets.lock.env /licenses/' \
+    'rm -f /usr/bin/pebble' \
+    'USER 10001:10001' \
+    'ENTRYPOINT ["/usr/local/bin/tiller"]'; do
+    if ! grep -Fq -- "$required" package/Dockerfile; then
+        fail KUBECTL_SERVICE_BUILD_MARKER_MISSING "marker=$required"
+    fi
+done
+
+for required in \
+    'HELM_VERSION' \
+    'HELM_GIT_COMMIT' \
+    'HELM_PATCH_SHA256' \
+    'TILLER_TAG' \
+    'TILLER_IMAGE_NAME' \
+    'SOURCE_REVISION' \
+    'cp ../MIGRATION.md .' \
+    'cp ../migration/targets.lock.env .' \
+    '--target tiller-runtime' \
+    'docker run --rm "${TILLER_IMAGE}" --version' \
+    'KUBERNETES_VERSION' \
+    'KUBERNETES_SERVER_SHA256' \
+    'helm "${IMAGE}" version --client' \
+    'helm "${IMAGE}" init -c' \
+    'kubectl "${IMAGE}" version --client=true --short=true'; do
+    if ! grep -Fq -- "$required" scripts/package; then
+        fail KUBECTL_SERVICE_PACKAGE_SMOKE_MISSING "marker=$required"
+    fi
+done
+
+if ! grep -Fq 'Helm 2.17.0' SECURITY.md || ! grep -Fq 'Go 1.26.5' SECURITY.md || ! grep -Fq 'Tiller' SECURITY.md; then
+    fail KUBECTL_SERVICE_SECURITY_HELM_COMPAT_DOC_MISSING
+fi
+if ! grep -Fq 'Kubernetes monolithic module' HELM_PATCH_ORIGIN.md || \
+    ! grep -Fq 'github.com/moby/term' HELM_PATCH_ORIGIN.md || \
+    ! grep -Fq 'Apache-2.0' HELM_PATCH_ORIGIN.md; then
+    fail KUBECTL_SERVICE_HELM_PATCH_ORIGIN_DOC_MISSING
+fi
+if ! grep -Fq 'Helm 2' COMPATIBILITY.md || ! grep -Fq 'Helm 2' README.md || ! grep -Fq 'Kubernetes 1.12.10' README.md || ! grep -Fq 'canonical payload' COMPATIBILITY.md; then
+    fail KUBECTL_SERVICE_COMPATIBILITY_DOC_MISSING
+fi
+if ! grep -Fq 'v3.21.3' MIGRATION.md || ! grep -Fq 'v4.2.3' MIGRATION.md || ! grep -Fq 'v0.11.0' migration/targets.lock.env; then
+    fail KUBECTL_SERVICE_MIGRATION_TARGET_DOC_MISSING
+fi
+
+if [ "$failures" -ne 0 ]; then
+    echo "failure_count=$failures"
+    exit 1
+fi
+
+echo "KUBECTL_SERVICE_HELM2_CLIENT_AND_TILLER_BASELINE_OK helm=${expected_version} go=${expected_go} source_commit=${expected_helm_commit}"
+echo "KUBECTL_SERVICE_KUBERNETES_ARCHIVE_OK kubernetes=${expected_kubernetes_version} sha256=${expected_kubernetes_sha256}"
+echo "KUBECTL_SERVICE_BUILD_DOCKER_CLI_OK image=${expected_docker_cli_image}"
+echo "Helm 2 is still a compatibility-gated protocol dependency; this gate enforces the Go 1.26.5 source build for both the client and non-root Tiller runtime, prevents reintroducing the official Go 1.14-built tarball, and rejects incompatible kubectl 1.36 builds."
+echo "failure_count=0"

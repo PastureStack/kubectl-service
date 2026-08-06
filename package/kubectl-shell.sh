@@ -1,7 +1,7 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-token=$1
+token=${1:-}
 
 if [ -z "${token}" ]; then
     echo No token provided
@@ -12,4 +12,4 @@ echo "# Run kubectl commands inside here"
 echo "# e.g. kubectl get all"
 export TERM=screen-256color
 
-unshare --fork --pid --mount-proc --mount shell-setup.sh ${token}
+KUBECTL_SHELL_TOKEN="${token}" unshare --fork --pid --mount-proc --mount shell-setup.sh

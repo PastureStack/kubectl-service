@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 cd $(dirname $0)/..
 
@@ -7,9 +7,13 @@ PACKAGES=". $(find -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u
 
 echo Running: go vet
 go vet ${PACKAGES}
-echo Running: golint
-for i in ${PACKAGES}; do
-    test -z "$(golint $i | grep -v 'should have comment or be unexported' | tee /dev/stderr)"
-done
-echo Running: go fmt
-test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"
+echo Running: gofmt check
+unformatted=$(find . -path './vendor' -prune -o -name '*.go' -type f -print | xargs gofmt -l)
+if [ -n "${unformatted}" ]; then
+    echo "${unformatted}" >&2
+    exit 1
+fi
+
+bash ./scripts/check-migration-targets --offline
+bash ./tests/test-migration-targets.sh
+bash ./tests/test-release-gate.sh
