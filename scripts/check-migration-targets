@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+lock_file="$repo_root/migration/targets.lock.env"
+upgrade_path_file="$repo_root/migration/kubernetes-upgrade-path.tsv"
+helm4_applied_patch_file="$repo_root/package/helm-v4.2.3-oras-go-v2.6.2.patch"
+helm3_applied_patch_file="$repo_root/package/helm-v3.21.3-security.patch"
+helm2to3_applied_patch_file="$repo_root/package/helm-2to3-v0.11.0-security.patch"
+mode=${1:---offline}
+kubernetes_download_version=${2:-}
+
+usage() {
+    echo "usage: $0 [--offline|--online|--download|--download-helm|--download-kubernetes VERSION]" >&2
+}
+
+case "$mode" in
+    --offline|--online|--download|--download-helm)
+        if [ "$#" -ne 1 ]; then
+            usage
+            exit 2
+        fi
+        ;;
+    --download-kubernetes)
+        if [ "$#" -ne 2 ] || ! [[ "$kubernetes_download_version" =~ ^v1\.[0-9]+\.[0-9]+$ ]]; then
+            usage
+            exit 2
+        fi
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac
+
+# shellcheck disable=SC1090
+source "$lock_file"
+
+required_variables=(
+    HELM3_BRIDGE_VERSION HELM3_BRIDGE_GIT_COMMIT
+    HELM3_BRIDGE_UPSTREAM_LINUX_AMD64_SHA256 HELM3_BRIDGE_SOURCE_SHA256
+    HELM3_BRIDGE_LICENSE_SHA256 HELM3_BRIDGE_APPLIED_PATCH_SHA256
+    HELM3_BRIDGE_ORAS_GO_VERSION HELM3_BRIDGE_X_TEXT_VERSION
+    HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256
+    HELM4_TARGET_VERSION HELM4_TARGET_GIT_COMMIT HELM4_TARGET_LINUX_AMD64_SHA256
+    HELM4_TARGET_SOURCE_SHA256 HELM4_TARGET_LICENSE_SHA256
+    HELM4_SECURITY_PATCH_COMMIT HELM4_SECURITY_PATCH_SHA256
+    HELM4_APPLIED_PATCH_SHA256 HELM4_ORAS_GO_VERSION
+    HELM2TO3_VERSION HELM2TO3_GIT_COMMIT
+    HELM2TO3_UPSTREAM_LINUX_AMD64_SHA256 HELM2TO3_SOURCE_SHA256
+    HELM2TO3_LICENSE_SHA256 HELM2TO3_APPLIED_PATCH_SHA256
+    HELM2TO3_HELM3_VERSION HELM2TO3_ORAS_GO_VERSION HELM2TO3_X_TEXT_VERSION
+    HELM2TO3_REBUILT_LINUX_AMD64_SHA256 HELM_MIGRATION_GO_VERSION
+    KUBERNETES_SOURCE_VERSION KUBERNETES_SOURCE_COMPATIBILITY_VERSION
+    KUBERNETES_UPGRADE_FIRST_MINOR KUBERNETES_UPGRADE_LAST_MINOR
+    KUBERNETES_UPGRADE_STEP_COUNT KUBERNETES_MINIMUM_SUPPORTED_MINOR
+    KUBERNETES_TARGET_VERSION KUBERNETES_TARGET_GIT_COMMIT
+)
+for name in "${required_variables[@]}"; do
+    value=${!name:-}
+    if [ -z "$value" ]; then
+        echo "missing migration lock variable: $name" >&2
+        exit 1
+    fi
+done
+
+for name in HELM3_BRIDGE_GIT_COMMIT HELM4_TARGET_GIT_COMMIT HELM4_SECURITY_PATCH_COMMIT HELM2TO3_GIT_COMMIT KUBERNETES_TARGET_GIT_COMMIT; do
+    if ! [[ "${!name}" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "invalid full Git commit in $name" >&2
+        exit 1
+    fi
+done
+for name in \
+    HELM3_BRIDGE_UPSTREAM_LINUX_AMD64_SHA256 \
+    HELM3_BRIDGE_SOURCE_SHA256 \
+    HELM3_BRIDGE_LICENSE_SHA256 \
+    HELM3_BRIDGE_APPLIED_PATCH_SHA256 \
+    HELM3_BRIDGE_REBUILT_LINUX_AMD64_SHA256 \
+    HELM4_TARGET_LINUX_AMD64_SHA256 \
+    HELM4_TARGET_SOURCE_SHA256 \
+    HELM4_TARGET_LICENSE_SHA256 \
+    HELM4_SECURITY_PATCH_SHA256 \
+    HELM4_APPLIED_PATCH_SHA256 \
+    HELM2TO3_UPSTREAM_LINUX_AMD64_SHA256 \
+    HELM2TO3_SOURCE_SHA256 \
+    HELM2TO3_LICENSE_SHA256 \
+    HELM2TO3_APPLIED_PATCH_SHA256 \
+    HELM2TO3_REBUILT_LINUX_AMD64_SHA256; do
+    if ! [[ "${!name}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "invalid SHA-256 in $name" >&2
+        exit 1
+    fi
+done
+
+[[ "$HELM3_BRIDGE_VERSION" =~ ^v3\. ]]
+[[ "$HELM3_BRIDGE_ORAS_GO_VERSION" =~ ^v2\.[0-9]+\.[0-9]+$ ]]
+[[ "$HELM3_BRIDGE_X_TEXT_VERSION" =~ ^v0\.[0-9]+\.[0-9]+$ ]]
+[[ "$HELM4_TARGET_VERSION" =~ ^v4\. ]]
+[[ "$HELM4_ORAS_GO_VERSION" =~ ^v2\.[0-9]+\.[0-9]+$ ]]
+[[ "$HELM2TO3_VERSION" == "v0.11.0" ]]
+[[ "$HELM2TO3_HELM3_VERSION" == "$HELM3_BRIDGE_VERSION" ]]
+[[ "$HELM2TO3_ORAS_GO_VERSION" == "$HELM3_BRIDGE_ORAS_GO_VERSION" ]]
+[[ "$HELM2TO3_X_TEXT_VERSION" == "$HELM3_BRIDGE_X_TEXT_VERSION" ]]
+[[ "$HELM_MIGRATION_GO_VERSION" =~ ^1\.[0-9]+\.[0-9]+$ ]]
+[[ "$KUBERNETES_TARGET_VERSION" =~ ^v1\. ]]
+
+fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+for command in sha256sum awk grep; do
+    command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
+done
+[[ -f "$helm4_applied_patch_file" ]] || fail "missing Helm 4 applied security patch: $helm4_applied_patch_file"
+[[ -f "$helm3_applied_patch_file" ]] || fail "missing Helm 3 applied security patch: $helm3_applied_patch_file"
+[[ -f "$helm2to3_applied_patch_file" ]] || fail "missing helm-2to3 applied security patch: $helm2to3_applied_patch_file"
+
+validate_unified_module_patch() {
+    local patch_file=$1
+    local expected_sha=$2
+    local description=$3
+    test "$(sha256sum "$patch_file" | awk '{print $1}')" = "$expected_sha" || fail "$description SHA-256 does not match the lock"
+    test "$(grep -c '^--- a/' "$patch_file")" -eq 2 || fail "$description must remove exactly two source files"
+    test "$(grep -c '^+++ b/' "$patch_file")" -eq 2 || fail "$description must add exactly two source files"
+    grep -Fqx -- '--- a/go.mod' "$patch_file" || fail "$description does not contain the expected go.mod source"
+    grep -Fqx -- '+++ b/go.mod' "$patch_file" || fail "$description does not contain the expected go.mod target"
+    grep -Fqx -- '--- a/go.sum' "$patch_file" || fail "$description does not contain the expected go.sum source"
+    grep -Fqx -- '+++ b/go.sum' "$patch_file" || fail "$description does not contain the expected go.sum target"
+}
+
+validate_unified_module_patch "$helm3_applied_patch_file" "$HELM3_BRIDGE_APPLIED_PATCH_SHA256" "Helm 3 applied security patch"
+grep -Fq 'oras.land/oras-go/v2 v2.6.1' "$helm3_applied_patch_file" || fail "Helm 3 applied security patch does not remove the vulnerable ORAS version"
+grep -Fq "oras.land/oras-go/v2 ${HELM3_BRIDGE_ORAS_GO_VERSION}" "$helm3_applied_patch_file" || fail "Helm 3 applied security patch does not add the locked ORAS version"
+grep -Fq 'golang.org/x/text v0.38.0' "$helm3_applied_patch_file" || fail "Helm 3 applied security patch does not remove the vulnerable x/text version"
+grep -Fq "golang.org/x/text ${HELM3_BRIDGE_X_TEXT_VERSION}" "$helm3_applied_patch_file" || fail "Helm 3 applied security patch does not add the locked x/text version"
+
+validate_unified_module_patch "$helm2to3_applied_patch_file" "$HELM2TO3_APPLIED_PATCH_SHA256" "helm-2to3 applied security patch"
+grep -Fq 'helm.sh/helm/v3 v3.15.3' "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not remove the vulnerable Helm 3 version"
+grep -Fq "helm.sh/helm/v3 ${HELM2TO3_HELM3_VERSION}" "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not add the locked Helm 3 version"
+grep -Fq 'oras.land/oras-go v1.2.5' "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not remove the legacy ORAS version"
+grep -Fq "oras.land/oras-go/v2 ${HELM2TO3_ORAS_GO_VERSION}" "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not add the locked ORAS version"
+grep -Fq 'golang.org/x/text v0.14.0' "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not remove the vulnerable x/text version"
+grep -Fq "golang.org/x/text ${HELM2TO3_X_TEXT_VERSION}" "$helm2to3_applied_patch_file" || fail "helm-2to3 applied security patch does not add the locked x/text version"
+
+test "$(sha256sum "$helm4_applied_patch_file" | awk '{print $1}')" = "$HELM4_APPLIED_PATCH_SHA256" || fail "Helm 4 applied security patch SHA-256 does not match the lock"
+test "$(grep -c '^diff --git ' "$helm4_applied_patch_file")" -eq 2 || fail "Helm 4 applied security patch must change exactly two files"
+grep -Fqx 'diff --git a/go.mod b/go.mod' "$helm4_applied_patch_file" || fail "Helm 4 applied security patch does not contain the expected go.mod change"
+grep -Fqx 'diff --git a/go.sum b/go.sum' "$helm4_applied_patch_file" || fail "Helm 4 applied security patch does not contain the expected go.sum change"
+grep -Fq 'oras.land/oras-go/v2 v2.6.1' "$helm4_applied_patch_file" || fail "Helm 4 applied security patch does not remove the vulnerable ORAS version"
+grep -Fq "oras.land/oras-go/v2 ${HELM4_ORAS_GO_VERSION}" "$helm4_applied_patch_file" || fail "Helm 4 applied security patch does not add the locked ORAS version"
+
+for name in KUBERNETES_UPGRADE_FIRST_MINOR KUBERNETES_UPGRADE_LAST_MINOR KUBERNETES_UPGRADE_STEP_COUNT KUBERNETES_MINIMUM_SUPPORTED_MINOR; do
+    [[ "${!name}" =~ ^[0-9]+$ ]] || fail "invalid integer in $name"
+done
+[[ "$KUBERNETES_SOURCE_VERSION" =~ ^v1\.12\.[0-9]+-rancher[0-9]+$ ]] || fail "invalid compatibility source version"
+[[ "$KUBERNETES_SOURCE_COMPATIBILITY_VERSION" =~ ^v1\.12\.[0-9]+$ ]] || fail "invalid Kubernetes source compatibility version"
+[[ "$KUBERNETES_UPGRADE_FIRST_MINOR" -eq 13 ]] || fail "the locked path must start at Kubernetes minor 1.13"
+[[ "$KUBERNETES_UPGRADE_LAST_MINOR" -ge "$KUBERNETES_UPGRADE_FIRST_MINOR" ]] || fail "invalid Kubernetes upgrade minor range"
+[[ "$KUBERNETES_MINIMUM_SUPPORTED_MINOR" -ge "$KUBERNETES_UPGRADE_FIRST_MINOR" ]] || fail "invalid minimum supported Kubernetes minor"
+[[ -f "$upgrade_path_file" ]] || fail "missing Kubernetes upgrade path lock: $upgrade_path_file"
+
+validate_kubernetes_upgrade_path() {
+    local header
+    IFS= read -r header < "$upgrade_path_file"
+    [[ "$header" == $'minor\tversion\tgit_commit\tserver_linux_amd64_sha256\tlifecycle' ]] || fail "invalid Kubernetes upgrade path header"
+
+    local expected_minor=$KUBERNETES_UPGRADE_FIRST_MINOR
+    local count=0
+    local last_version=''
+    local last_commit=''
+    local minor version commit archive_sha lifecycle extra expected_lifecycle
+    while IFS=$'\t' read -r minor version commit archive_sha lifecycle extra; do
+        [ -n "$minor$version$commit$archive_sha$lifecycle$extra" ] || fail "blank row in Kubernetes upgrade path"
+        [ -z "$extra" ] || fail "unexpected extra column in Kubernetes upgrade path minor $minor"
+        [[ "$minor" =~ ^[0-9]+$ ]] || fail "invalid Kubernetes minor in upgrade path: $minor"
+        [[ "$minor" -eq "$expected_minor" ]] || fail "Kubernetes upgrade path skipped or duplicated minor: expected $expected_minor, got $minor"
+        [[ "$version" =~ ^v1\.${minor}\.[0-9]+$ ]] || fail "version does not match Kubernetes minor $minor: $version"
+        [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "invalid Kubernetes Git commit for $version"
+        [[ "$archive_sha" =~ ^[0-9a-f]{64}$ ]] || fail "invalid Kubernetes server archive SHA-256 for $version"
+        expected_lifecycle=EOL
+        if [ "$minor" -ge "$KUBERNETES_MINIMUM_SUPPORTED_MINOR" ]; then
+            expected_lifecycle=SUPPORTED
+        fi
+        [[ "$lifecycle" == "$expected_lifecycle" ]] || fail "invalid lifecycle for $version: expected $expected_lifecycle, got $lifecycle"
+        expected_minor=$((expected_minor + 1))
+        count=$((count + 1))
+        last_version=$version
+        last_commit=$commit
+    done < <(tail -n +2 "$upgrade_path_file")
+
+    [[ "$count" -eq "$KUBERNETES_UPGRADE_STEP_COUNT" ]] || fail "Kubernetes upgrade step count mismatch: expected $KUBERNETES_UPGRADE_STEP_COUNT, got $count"
+    [[ "$((expected_minor - 1))" -eq "$KUBERNETES_UPGRADE_LAST_MINOR" ]] || fail "Kubernetes upgrade path does not end at minor $KUBERNETES_UPGRADE_LAST_MINOR"
+    [[ "$last_version" == "$KUBERNETES_TARGET_VERSION" ]] || fail "Kubernetes upgrade path target version mismatch"
+    [[ "$last_commit" == "$KUBERNETES_TARGET_GIT_COMMIT" ]] || fail "Kubernetes upgrade path target commit mismatch"
+}
+
+validate_kubernetes_upgrade_path
+
+if [ "$mode" = "--offline" ]; then
+    echo "KUBECTL_SERVICE_MIGRATION_TARGETS_OFFLINE_OK helm3=${HELM3_BRIDGE_VERSION} helm2to3=${HELM2TO3_VERSION} helm4=${HELM4_TARGET_VERSION} kubernetes=${KUBERNETES_SOURCE_COMPATIBILITY_VERSION}->${KUBERNETES_TARGET_VERSION} steps=${KUBERNETES_UPGRADE_STEP_COUNT} rebuilt_binaries_locked=2"
+    exit 0
+fi
+
+for command in curl git sha256sum awk; do
+    command -v "$command" >/dev/null 2>&1 || {
+        echo "required command not found: $command" >&2
+        exit 1
+    }
+done
+
+temporary_directory=$(mktemp -d)
+cleanup() {
+    rm -rf -- "$temporary_directory"
+}
+trap cleanup EXIT
+
+curl_flags=(--fail --silent --show-error --location --retry 5 --retry-all-errors --connect-timeout 10 --max-time 300)
+
+official_helm3_sha=$(curl "${curl_flags[@]}" "https://get.helm.sh/helm-${HELM3_BRIDGE_VERSION}-linux-amd64.tar.gz.sha256sum" | awk 'NR == 1 {print $1}')
+official_helm3_source_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm/archive/${HELM3_BRIDGE_GIT_COMMIT}.tar.gz" | sha256sum | awk '{print $1}')
+official_helm3_license_sha=$(curl "${curl_flags[@]}" "https://raw.githubusercontent.com/helm/helm/${HELM3_BRIDGE_GIT_COMMIT}/LICENSE" | sha256sum | awk '{print $1}')
+official_helm4_sha=$(curl "${curl_flags[@]}" "https://get.helm.sh/helm-${HELM4_TARGET_VERSION}-linux-amd64.tar.gz.sha256sum" | awk 'NR == 1 {print $1}')
+official_helm4_source_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm/archive/refs/tags/${HELM4_TARGET_VERSION}.tar.gz" | sha256sum | awk '{print $1}')
+official_helm4_license_sha=$(curl "${curl_flags[@]}" "https://raw.githubusercontent.com/helm/helm/${HELM4_TARGET_GIT_COMMIT}/LICENSE" | sha256sum | awk '{print $1}')
+official_helm4_security_patch_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm/commit/${HELM4_SECURITY_PATCH_COMMIT}.patch" | sha256sum | awk '{print $1}')
+official_2to3_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm-2to3/releases/download/${HELM2TO3_VERSION}/checksums.txt" | awk '$2 == "helm-2to3_0.11.0_linux_amd64.tar.gz" {print $1}')
+official_2to3_source_sha=$(curl "${curl_flags[@]}" "https://github.com/helm/helm-2to3/archive/${HELM2TO3_GIT_COMMIT}.tar.gz" | sha256sum | awk '{print $1}')
+official_2to3_license_sha=$(curl "${curl_flags[@]}" "https://raw.githubusercontent.com/helm/helm-2to3/${HELM2TO3_GIT_COMMIT}/LICENSE" | sha256sum | awk '{print $1}')
+
+test "$official_helm3_sha" = "$HELM3_BRIDGE_UPSTREAM_LINUX_AMD64_SHA256" || fail "Helm 3 upstream archive SHA-256 lock does not match official metadata"
+test "$official_helm3_source_sha" = "$HELM3_BRIDGE_SOURCE_SHA256" || fail "Helm 3 source archive SHA-256 lock does not match the exact source commit"
+test "$official_helm3_license_sha" = "$HELM3_BRIDGE_LICENSE_SHA256" || fail "Helm 3 source license SHA-256 lock does not match the exact source commit"
+test "$official_helm4_sha" = "$HELM4_TARGET_LINUX_AMD64_SHA256" || fail "Helm 4 archive SHA-256 lock does not match official metadata"
+test "$official_helm4_source_sha" = "$HELM4_TARGET_SOURCE_SHA256" || fail "Helm 4 source archive SHA-256 lock does not match the exact release tag"
+test "$official_helm4_license_sha" = "$HELM4_TARGET_LICENSE_SHA256" || fail "Helm 4 source license SHA-256 lock does not match the exact source commit"
+test "$official_helm4_security_patch_sha" = "$HELM4_SECURITY_PATCH_SHA256" || fail "Helm 4 security patch SHA-256 lock does not match the reviewed upstream commit"
+test "$official_2to3_sha" = "$HELM2TO3_UPSTREAM_LINUX_AMD64_SHA256" || fail "helm-2to3 upstream archive SHA-256 lock does not match official metadata"
+test "$official_2to3_source_sha" = "$HELM2TO3_SOURCE_SHA256" || fail "helm-2to3 source archive SHA-256 lock does not match the exact source commit"
+test "$official_2to3_license_sha" = "$HELM2TO3_LICENSE_SHA256" || fail "helm-2to3 source license SHA-256 lock does not match the exact source commit"
+
+resolve_tag_commit() {
+    local repository=$1
+    local tag=$2
+    local refs
+    refs=$(git -C "$temporary_directory" ls-remote --tags "$repository" "refs/tags/${tag}" "refs/tags/${tag}^{}")
+    local peeled
+    peeled=$(printf '%s\n' "$refs" | awk '$2 ~ /\^\{\}$/ {print $1; exit}')
+    if [ -n "$peeled" ]; then
+        printf '%s\n' "$peeled"
+    else
+        printf '%s\n' "$refs" | awk 'NR == 1 {print $1}'
+    fi
+}
+
+test "$(resolve_tag_commit https://github.com/helm/helm.git "$HELM3_BRIDGE_VERSION")" = "$HELM3_BRIDGE_GIT_COMMIT" || fail "Helm 3 Git tag lock does not match upstream"
+test "$(resolve_tag_commit https://github.com/helm/helm.git "$HELM4_TARGET_VERSION")" = "$HELM4_TARGET_GIT_COMMIT" || fail "Helm 4 Git tag lock does not match upstream"
+test "$(resolve_tag_commit https://github.com/helm/helm-2to3.git "$HELM2TO3_VERSION")" = "$HELM2TO3_GIT_COMMIT" || fail "helm-2to3 Git tag lock does not match upstream"
+
+current_kubernetes_stable=$(curl "${curl_flags[@]}" https://dl.k8s.io/release/stable.txt)
+[[ "$current_kubernetes_stable" =~ ^v1\.([0-9]+)\.[0-9]+$ ]] || fail "invalid current Kubernetes stable pointer: $current_kubernetes_stable"
+current_kubernetes_minor=${BASH_REMATCH[1]}
+expected_minimum_supported_minor=$((current_kubernetes_minor - 2))
+test "$KUBERNETES_TARGET_VERSION" = "$current_kubernetes_stable" || fail "Kubernetes target is no longer the current stable release: locked $KUBERNETES_TARGET_VERSION, official $current_kubernetes_stable"
+test "$KUBERNETES_UPGRADE_LAST_MINOR" -eq "$current_kubernetes_minor" || fail "Kubernetes upgrade path does not end at the current stable minor"
+test "$KUBERNETES_MINIMUM_SUPPORTED_MINOR" -eq "$expected_minimum_supported_minor" || fail "Kubernetes supported-branch lifecycle lock is stale: expected minimum minor $expected_minimum_supported_minor"
+
+kubernetes_tag_patterns=()
+while IFS=$'\t' read -r minor version commit archive_sha lifecycle; do
+    kubernetes_tag_patterns+=("refs/tags/${version}" "refs/tags/${version}^{}")
+done < <(tail -n +2 "$upgrade_path_file")
+kubernetes_refs=$(git -C "$temporary_directory" ls-remote --tags https://github.com/kubernetes/kubernetes.git "${kubernetes_tag_patterns[@]}")
+[ -n "$kubernetes_refs" ] || fail "Kubernetes Git tag lookup returned no refs"
+
+resolve_kubernetes_path_tag_commit() {
+    local tag=$1
+    local peeled
+    peeled=$(printf '%s\n' "$kubernetes_refs" | awk -v ref="refs/tags/${tag}^{}" '$2 == ref {print $1; exit}')
+    if [ -n "$peeled" ]; then
+        printf '%s\n' "$peeled"
+    else
+        printf '%s\n' "$kubernetes_refs" | awk -v ref="refs/tags/${tag}" '$2 == ref {print $1; exit}'
+    fi
+}
+
+while IFS=$'\t' read -r minor version commit archive_sha lifecycle; do
+    official_version=$(curl "${curl_flags[@]}" "https://dl.k8s.io/release/stable-1.${minor}.txt")
+    test "$official_version" = "$version" || fail "Kubernetes stable pointer changed for 1.${minor}: locked $version, official $official_version"
+    official_archive_sha=$(curl "${curl_flags[@]}" "https://dl.k8s.io/release/${version}/kubernetes-server-linux-amd64.tar.gz.sha256")
+    test "$official_archive_sha" = "$archive_sha" || fail "Kubernetes server archive SHA-256 lock does not match official metadata for $version"
+    test "$(resolve_kubernetes_path_tag_commit "$version")" = "$commit" || fail "Kubernetes Git tag lock does not match upstream for $version"
+done < <(tail -n +2 "$upgrade_path_file")
+
+if [ "$mode" = "--download" ] || [ "$mode" = "--download-helm" ]; then
+    helm3_source_archive="$temporary_directory/helm-${HELM3_BRIDGE_GIT_COMMIT}-source.tar.gz"
+    helm4_source_archive="$temporary_directory/helm-${HELM4_TARGET_VERSION}-source.tar.gz"
+    helm4_security_patch="$temporary_directory/helm-${HELM4_SECURITY_PATCH_COMMIT}.patch"
+    migration_source_archive="$temporary_directory/helm-2to3-${HELM2TO3_GIT_COMMIT}-source.tar.gz"
+    curl "${curl_flags[@]}" -o "$helm3_source_archive" "https://github.com/helm/helm/archive/${HELM3_BRIDGE_GIT_COMMIT}.tar.gz"
+    curl "${curl_flags[@]}" -o "$helm4_source_archive" "https://github.com/helm/helm/archive/refs/tags/${HELM4_TARGET_VERSION}.tar.gz"
+    curl "${curl_flags[@]}" -o "$helm4_security_patch" "https://github.com/helm/helm/commit/${HELM4_SECURITY_PATCH_COMMIT}.patch"
+    curl "${curl_flags[@]}" -o "$migration_source_archive" "https://github.com/helm/helm-2to3/archive/${HELM2TO3_GIT_COMMIT}.tar.gz"
+    printf '%s  %s\n' "$HELM3_BRIDGE_SOURCE_SHA256" "$helm3_source_archive" | sha256sum -c -
+    printf '%s  %s\n' "$HELM4_TARGET_SOURCE_SHA256" "$helm4_source_archive" | sha256sum -c -
+    printf '%s  %s\n' "$HELM4_SECURITY_PATCH_SHA256" "$helm4_security_patch" | sha256sum -c -
+    printf '%s  %s\n' "$HELM2TO3_SOURCE_SHA256" "$migration_source_archive" | sha256sum -c -
+fi
+
+if [ "$mode" = "--download-kubernetes" ]; then
+    selected_row=$(awk -F '\t' -v wanted="$kubernetes_download_version" 'NR > 1 && $2 == wanted {print; exit}' "$upgrade_path_file")
+    [ -n "$selected_row" ] || fail "requested Kubernetes version is not present in the locked upgrade path: $kubernetes_download_version"
+    IFS=$'\t' read -r selected_minor selected_version selected_commit selected_sha selected_lifecycle <<< "$selected_row"
+    kubernetes_archive="$temporary_directory/kubernetes-server-linux-amd64-${selected_version}.tar.gz"
+    curl "${curl_flags[@]}" -o "$kubernetes_archive" "https://dl.k8s.io/release/${selected_version}/kubernetes-server-linux-amd64.tar.gz"
+    printf '%s  %s\n' "$selected_sha" "$kubernetes_archive" | sha256sum -c -
+fi
+
+mode_label=${mode#--}
+mode_label=${mode_label//-/_}
+echo "KUBECTL_SERVICE_MIGRATION_TARGETS_${mode_label^^}_OK helm3=${HELM3_BRIDGE_VERSION} helm2to3=${HELM2TO3_VERSION} helm4=${HELM4_TARGET_VERSION} kubernetes=${KUBERNETES_SOURCE_COMPATIBILITY_VERSION}->${KUBERNETES_TARGET_VERSION} steps=${KUBERNETES_UPGRADE_STEP_COUNT} upstream_vulnerable_binaries_downloaded=0"

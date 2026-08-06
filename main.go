@@ -1,34 +1,45 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/kubectl-service/events"
+	platformhelm "github.com/PastureStack/kubectl-service/helm"
 	"github.com/codegangsta/cli"
-	"github.com/rancher/kubectld/events"
 	"github.com/rancher/swarm-agent/healthcheck"
+	"github.com/sirupsen/logrus"
 )
 
-func main() {
+var VERSION = "dev"
+
+var (
+	startHealthCheck  = healthcheck.StartHealthCheck
+	startEventHandler = events.StartEventHandler
+	logFatalf         = logrus.Fatalf
+)
+
+func newApp() *cli.App {
 	app := cli.NewApp()
-	app.Name = "kubectld"
+	app.Name = "kubectl-service"
+	app.Version = VERSION
 	app.Action = launch
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:   "cattle-url",
-			Usage:  "URL for cattle API",
-			EnvVar: "CATTLE_URL",
+			Name:   "platform-url",
+			Usage:  "URL for the control-platform API",
+			EnvVar: "PLATFORM_URL,CATTLE_URL",
 		},
 		cli.StringFlag{
-			Name:   "cattle-access-key",
-			Usage:  "Cattle API Access Key",
-			EnvVar: "CATTLE_ACCESS_KEY",
+			Name:   "platform-access-key",
+			Usage:  "Control-platform API access key",
+			EnvVar: "PLATFORM_ACCESS_KEY,CATTLE_ACCESS_KEY",
 		},
 		cli.StringFlag{
-			Name:   "cattle-secret-key",
-			Usage:  "Cattle API Secret Key",
-			EnvVar: "CATTLE_SECRET_KEY",
+			Name:   "platform-secret-key",
+			Usage:  "Control-platform API secret key",
+			EnvVar: "PLATFORM_SECRET_KEY,CATTLE_SECRET_KEY",
 		},
 		cli.IntFlag{
 			Name:   "worker-count",
@@ -47,19 +58,43 @@ func main() {
 			Usage:  "Enable debug logs",
 			EnvVar: "DEBUG",
 		},
+		cli.StringFlag{
+			Name:   "locale",
+			Value:  "en-US",
+			Usage:  "Operator message locale: en-US or zh-TW",
+			EnvVar: "PASTURESTACK_LOCALE",
+		},
+		cli.StringFlag{
+			Name:   "helm-backend",
+			Value:  platformhelm.LegacyHelm2BackendName,
+			Usage:  "Helm release backend: legacy-helm2 or helm4",
+			EnvVar: "PASTURESTACK_HELM_BACKEND",
+		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
-		logrus.Fatalf("Fatal exit: %v", err)
+	return app
+}
+
+func main() {
+	if err := newApp().Run(os.Args); err != nil {
+		logFatalf("Fatal exit: %v", err)
 	}
 }
 
 func launch(ctx *cli.Context) error {
 	hcPort := ctx.Int("health-check-port")
 
-	url := ctx.String("cattle-url")
-	accessKey := ctx.String("cattle-access-key")
-	secretKey := ctx.String("cattle-secret-key")
+	locale := ctx.String("locale")
+	if locale != "en-US" && locale != "zh-TW" {
+		return fmt.Errorf("unsupported locale %q; use en-US or zh-TW", locale)
+	}
+	if err := platformhelm.ConfigureBackend(ctx.String("helm-backend")); err != nil {
+		return err
+	}
+
+	url := ctx.String("platform-url")
+	accessKey := ctx.String("platform-access-key")
+	secretKey := ctx.String("platform-secret-key")
 	workers := ctx.Int("worker-count")
 
 	if ctx.Bool("debug") {
@@ -67,8 +102,16 @@ func launch(ctx *cli.Context) error {
 	}
 
 	go func() {
-		logrus.Fatalf("Rancher healthcheck exited with error: %v", healthcheck.StartHealthCheck(hcPort))
+		logFatalf("%s: %v", operatorMessage(locale, "healthcheck-exit"), startHealthCheck(hcPort))
 	}()
 
-	return events.StartEventHandler(url, accessKey, secretKey, workers)
+	return startEventHandler(url, accessKey, secretKey, workers)
+}
+
+func operatorMessage(locale, key string) string {
+	messages := map[string]map[string]string{
+		"en-US": {"healthcheck-exit": "Health check exited with an error"},
+		"zh-TW": {"healthcheck-exit": "健康檢查因錯誤而停止"},
+	}
+	return messages[locale][key]
 }
