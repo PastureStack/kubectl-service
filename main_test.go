@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	platformhelm "github.com/PastureStack/kubectl-service/helm"
 	"github.com/codegangsta/cli"
 	"github.com/sirupsen/logrus"
 )
@@ -48,7 +47,6 @@ func TestNewAppDefinesCompatibilityConfiguration(t *testing.T) {
 		"health-check-port",
 		"debug",
 		"locale",
-		"helm-backend",
 	}
 	if !reflect.DeepEqual(flagNames, expected) {
 		t.Fatalf("unexpected CLI flags: %#v", flagNames)
@@ -65,7 +63,6 @@ func contextForLaunch(t *testing.T, values map[string]string) *cli.Context {
 	set.Int("health-check-port", 10240, "")
 	set.Bool("debug", false, "")
 	set.String("locale", "en-US", "")
-	set.String("helm-backend", "legacy-helm2", "")
 	for name, value := range values {
 		if err := set.Set(name, value); err != nil {
 			t.Fatalf("set %s: %v", name, err)
@@ -101,39 +98,11 @@ func TestLaunchRejectsUnsupportedLocaleBeforeStartingServices(t *testing.T) {
 	}
 }
 
-func TestLaunchRejectsUnsupportedHelmBackendBeforeStartingServices(t *testing.T) {
-	eventCalls := 0
-	healthCalls := 0
-	originalEvents := startEventHandler
-	originalHealth := startHealthCheck
-	startEventHandler = func(string, string, string, int) error {
-		eventCalls++
-		return nil
-	}
-	startHealthCheck = func(int) error {
-		healthCalls++
-		return nil
-	}
-	t.Cleanup(func() {
-		startEventHandler = originalEvents
-		startHealthCheck = originalHealth
-	})
-
-	err := launch(contextForLaunch(t, map[string]string{"helm-backend": "auto"}))
-	if err == nil || !strings.Contains(err.Error(), "unsupported Helm backend") {
-		t.Fatalf("unsupported backend returned %v", err)
-	}
-	if eventCalls != 0 || healthCalls != 0 {
-		t.Fatalf("services started for an invalid backend: events=%d health=%d", eventCalls, healthCalls)
-	}
-}
-
 func TestLaunchPassesConfigurationAndReportsHealthExit(t *testing.T) {
 	originalEvents := startEventHandler
 	originalHealth := startHealthCheck
 	originalFatalf := logFatalf
 	originalLevel := logrus.GetLevel()
-	originalBackend := platformhelm.ActiveBackendName()
 
 	healthPort := make(chan int, 1)
 	releaseHealth := make(chan struct{})
@@ -152,9 +121,6 @@ func TestLaunchPassesConfigurationAndReportsHealthExit(t *testing.T) {
 		if url != "https://platform.invalid" || accessKey != "access" || secretKey != "secret" || workers != 7 {
 			t.Fatalf("unexpected event configuration: url=%q access=%q secret=%q workers=%d", url, accessKey, secretKey, workers)
 		}
-		if got := platformhelm.ActiveBackendName(); got != platformhelm.Helm4BackendName {
-			t.Fatalf("event handler started with Helm backend %q", got)
-		}
 		return eventFailure
 	}
 	t.Cleanup(func() {
@@ -162,9 +128,6 @@ func TestLaunchPassesConfigurationAndReportsHealthExit(t *testing.T) {
 		startHealthCheck = originalHealth
 		logFatalf = originalFatalf
 		logrus.SetLevel(originalLevel)
-		if err := platformhelm.ConfigureBackend(originalBackend); err != nil {
-			t.Fatalf("restore Helm backend: %v", err)
-		}
 	})
 
 	err := launch(contextForLaunch(t, map[string]string{
@@ -175,7 +138,6 @@ func TestLaunchPassesConfigurationAndReportsHealthExit(t *testing.T) {
 		"health-check-port":   "12040",
 		"debug":               "true",
 		"locale":              "zh-TW",
-		"helm-backend":        "helm4",
 	}))
 	if !errors.Is(err, eventFailure) {
 		t.Fatalf("event failure was not propagated: %v", err)

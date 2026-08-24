@@ -3,39 +3,12 @@ set -euo pipefail
 
 umask 077
 
-validate_helm_backend() {
-    case "${PASTURESTACK_HELM_BACKEND}" in
-        legacy-helm2|helm4)
-            ;;
-        *)
-            echo "unsupported PASTURESTACK_HELM_BACKEND=${PASTURESTACK_HELM_BACKEND}; use legacy-helm2 or helm4" >&2
-            return 2
-            ;;
-    esac
-}
-
-run_helm2() {
-    /usr/bin/helm "$@"
-}
-
-run_helm4() {
-    /usr/bin/helm4 "$@"
-}
-
-initialize_helm_backend() {
-    case "${PASTURESTACK_HELM_BACKEND}" in
-        legacy-helm2)
-            run_helm2 version --client
-            run_helm2 init -c
-            ;;
-        helm4)
-            export HELM_CACHE_HOME="${HOME}/.cache/helm"
-            export HELM_CONFIG_HOME="${HOME}/.config/helm"
-            export HELM_DATA_HOME="${HOME}/.local/share/helm"
-            mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}"
-            run_helm4 version --short
-            ;;
-    esac
+initialize_helm() {
+    export HELM_CACHE_HOME="${HOME}/.cache/helm"
+    export HELM_CONFIG_HOME="${HOME}/.config/helm"
+    export HELM_DATA_HOME="${HOME}/.local/share/helm"
+    mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}"
+    /usr/bin/helm version --short
 }
 
 configure_trust() {
@@ -96,13 +69,9 @@ EOF_CONFIG
 }
 
 main() {
-    : "${PASTURESTACK_HELM_BACKEND:=legacy-helm2}"
-    validate_helm_backend
-    export PASTURESTACK_HELM_BACKEND
-
     configure_trust
     write_kubeconfig
-    initialize_helm_backend
+    initialize_helm
 
     exec kubectl-service
 }

@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/PastureStack/kubectl-service/events"
-	platformhelm "github.com/PastureStack/kubectl-service/helm"
 	"github.com/codegangsta/cli"
 	"github.com/rancher/swarm-agent/healthcheck"
 	"github.com/sirupsen/logrus"
@@ -64,12 +63,6 @@ func newApp() *cli.App {
 			Usage:  "Operator message locale: en-US or zh-TW",
 			EnvVar: "PASTURESTACK_LOCALE",
 		},
-		cli.StringFlag{
-			Name:   "helm-backend",
-			Value:  platformhelm.LegacyHelm2BackendName,
-			Usage:  "Helm release backend: legacy-helm2 or helm4",
-			EnvVar: "PASTURESTACK_HELM_BACKEND",
-		},
 	}
 
 	return app
@@ -88,10 +81,6 @@ func launch(ctx *cli.Context) error {
 	if locale != "en-US" && locale != "zh-TW" {
 		return fmt.Errorf("unsupported locale %q; use en-US or zh-TW", locale)
 	}
-	if err := platformhelm.ConfigureBackend(ctx.String("helm-backend")); err != nil {
-		return err
-	}
-
 	url := ctx.String("platform-url")
 	accessKey := ctx.String("platform-access-key")
 	secretKey := ctx.String("platform-secret-key")

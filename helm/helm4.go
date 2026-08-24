@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/PastureStack/kubectl-service/cli"
+	"github.com/PastureStack/kubectl-service/kubectl"
 )
 
 const helm4ListLimit = 10000
+
+var deleteKubernetesNamespace = kubectl.DeleteNamespace
 
 type helm4ListItem struct {
 	Name       string          `json:"name"`

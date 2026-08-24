@@ -12,14 +12,19 @@ import (
 
 func useHelm4Backend(t *testing.T) {
 	t.Helper()
-	if err := ConfigureBackend(Helm4BackendName); err != nil {
-		t.Fatalf("configure Helm 4 backend: %v", err)
+	if ActiveBackendName() != Helm4BackendName {
+		t.Fatalf("Helm 4 is not the active backend")
 	}
-	t.Cleanup(func() {
-		if err := ConfigureBackend(LegacyHelm2BackendName); err != nil {
-			t.Fatalf("restore legacy backend: %v", err)
-		}
-	})
+}
+
+func minimalChartStack(name, namespace string) *Stack {
+	return &Stack{
+		Name:      name,
+		Namespace: namespace,
+		Files: map[string]string{
+			"Chart.yaml": "apiVersion: v2\nname: demo\nversion: 0.1.0\n",
+		},
+	}
 }
 
 func TestHelm4InstallPreservesClientSideApplyContract(t *testing.T) {

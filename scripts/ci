@@ -6,5 +6,4 @@ cd $(dirname $0)
 ./build
 ./test
 ./validate
-./check-helm2-client-baseline
 ./package

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode"
 )
 
 const (
@@ -25,37 +24,6 @@ func validateStackIdentity(stack *Stack) error {
 		return fmt.Errorf("KubernetesStack.Name cannot be empty")
 	}
 	return nil
-}
-
-func executeHelmCreateUpgradeTask(stack *Stack, args []string, isUpgrade bool) (string, error) {
-	helmPath, cleanup, err := prepareHelmChart(stack)
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-
-	if stack.Namespace != "" {
-		args = append(args, "--namespace", stack.Namespace)
-	}
-	if stack.Name != "" {
-		if isUpgrade {
-			args = append(args, stack.Name)
-		} else { //create
-			args = append(args, "--name", stack.Name)
-		}
-	} else {
-		return "", fmt.Errorf("KubernetesStack.Name cannot be empty")
-	}
-
-	args = append(args, helmPath)
-	if err := updateHelmDependencies(legacyHelm2Command, helmPath); err != nil {
-		return "", err
-	}
-	output := runCommand(legacyHelm2Command, args...)
-	if output.ExitCode > 0 {
-		return "", fmt.Errorf("%s", output.StdErr)
-	}
-	return output.StdOut, output.Err
 }
 
 func prepareHelmChart(stack *Stack) (string, func(), error) {
@@ -196,19 +164,4 @@ func safeTemplatePath(root, name string) (string, error) {
 	}
 
 	return targetAbs, nil
-}
-
-func collapseContiguousSpaces(s string) string {
-	contiguousSpace := false
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			if contiguousSpace {
-				return -1
-			}
-			contiguousSpace = true
-			return ' '
-		}
-		contiguousSpace = false
-		return r
-	}, s)
 }

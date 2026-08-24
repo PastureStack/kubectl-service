@@ -1,7 +1,5 @@
 package helm
 
-import "fmt"
-
 type stackBackend interface {
 	Name() string
 	InstallStack(stack *Stack) (string, error)
@@ -11,24 +9,7 @@ type stackBackend interface {
 	ListReleases() ([]Release, error)
 }
 
-type legacyHelm2Backend struct{}
-
-var activeBackend stackBackend = legacyHelm2Backend{}
-
-func ConfigureBackend(name string) error {
-	var selected stackBackend
-	switch name {
-	case "", LegacyHelm2BackendName:
-		selected = legacyHelm2Backend{}
-	case Helm4BackendName:
-		selected = helm4Backend{}
-	default:
-		return fmt.Errorf("unsupported Helm backend %q; use %s or %s", name, LegacyHelm2BackendName, Helm4BackendName)
-	}
-
-	activeBackend = selected
-	return nil
-}
+var activeBackend stackBackend = helm4Backend{}
 
 func ActiveBackendName() string {
 	return activeBackend.Name()
@@ -64,32 +45,6 @@ func RollbackHelmStack(stack *Stack) error {
 
 func ListReleases() ([]Release, error) {
 	return activeBackend.ListReleases()
-}
-
-func (legacyHelm2Backend) Name() string {
-	return LegacyHelm2BackendName
-}
-
-func (legacyHelm2Backend) InstallStack(stack *Stack) (string, error) {
-	args := []string{"install"}
-	return executeHelmCreateUpgradeTask(stack, args, false)
-}
-
-func (legacyHelm2Backend) UpgradeStack(stack *Stack) (string, error) {
-	args := []string{"upgrade"}
-	return executeHelmCreateUpgradeTask(stack, args, true)
-}
-
-func (legacyHelm2Backend) DeleteStack(stack *Stack) error {
-	return deleteHelmStackLegacyHelm2(stack)
-}
-
-func (legacyHelm2Backend) RollbackStack(stack *Stack) error {
-	return rollbackHelmStackLegacyHelm2(stack)
-}
-
-func (legacyHelm2Backend) ListReleases() ([]Release, error) {
-	return listReleasesLegacyHelm2()
 }
 
 type helm4Backend struct{}

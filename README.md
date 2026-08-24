@@ -1,49 +1,40 @@
 # PastureStack Kubectl Service
 
-Kubectl Service is a compatibility microservice that handles the established catalog create, upgrade, rollback, remove, and query operations by coordinating kubectl with either the isolated Helm 2 compatibility contract or an explicitly selected post-conversion Helm 4 backend.
+Kubectl Service handles catalog install, upgrade, rollback, remove, list, and
+interactive kubectl operations. The maintained runtime uses Kubernetes
+`v1.36.4` and Helm `v4.2.4` only.
 
-PastureStack is an independent community effort to preserve, audit, and modernize the Rancher 1.6 ecosystem. It is not affiliated with or endorsed by Rancher Labs or SUSE.
+PastureStack is an independent community project and is not affiliated with
+Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
+license of the upstream `rancher/kubectld` project.
 
-**Upstream:** [`rancher/kubectld`](https://github.com/rancher/kubectld). This GitHub fork preserves the upstream Git history, authorship, dates, tags, and license notices; PastureStack maintenance is consolidated into one commit after the preserved upstream boundary.
+## Runtime contract
 
-## Project status
+- Helm operations always use Helm `v4.2.4`, rebuilt from its pinned upstream
+  source with Go `1.27.0` and patched ORAS `v2.6.2`.
+- Kubernetes operations use `kubectl v1.36.4`, rebuilt from the pinned official
+  source archive with Go `1.27.0`.
+- Catalog event names and reply shapes remain unchanged.
+- The former backend selector has been removed. No runtime fallback or
+  automatic conversion exists.
+- Existing release data must already be readable by Helm 4 before this service
+  is introduced. An old release store is not modified or deleted by this image.
 
-The maintained compatibility candidate is `ghcr.io/pasturestack/kubectl-service:v0.9.12`. It uses digest-pinned Ubuntu 26.04 with Canonical snapshot `20260808T000000Z` and exact APT versions from `package/ubuntu-apt.lock`, Go 1.26.5, the checksum-verified Kubernetes 1.12.10 kubectl binary, and Helm 2 client and Tiller binaries rebuilt from the pinned source revision with committed module locks. The same service image contains `/usr/bin/helm4`, exposed as PastureStack build `v4.2.4` and built from the checksum-locked official Helm `v4.2.3` source tag plus the dependency change from upstream Helm commit `84e63e5c38913594e476b15609fb6c7ab2d60467`. The build version is a PastureStack artifact version, not an upstream Helm release claim. That two-file upstream patch updates `oras.land/oras-go/v2` to `v2.6.2` and removes High `CVE-2026-50163` (`GHSA-fxhp-mv3v-67qp`) from the otherwise-current release. Because the upstream patch was generated against post-release `main`, the repository carries a separately checksum-locked, tag-compatible patch containing the same two module-file substitutions. The source archive, upstream patch, applied patch, source commit, rebuilt binary, module graph, and Apache-2.0 license are independently locked and checked during the build; the resulting module inventory is included as `/licenses/HELM4-MODULES.txt`. The build container obtains Docker CLI 29.6.2 from the digest-pinned Docker Official Image instead of downloading an unchecked static archive. Every release OCI image records the exact source commit in `org.opencontainers.image.revision`; release packaging rejects dirty, untagged, lightweight-tagged, non-numeric, or ambiguously tagged source. The packaging patch removes unnecessary broad dependencies while preserving table output, deployment-wait behavior, release storage, metrics, and the Tiller protocol. The Tiller image runs as UID/GID 10001 and is intended for a read-only root filesystem with all Linux capabilities dropped by the Kubernetes package. The kubectl-service image defaults to UID/GID 65534, creates a private user-level trust bundle instead of modifying the system certificate store, and keeps each interactive shell in a distinct mode-0700 temporary home that is removed when the session exits. Neither the normal service nor the shell broker needs privileged mode, a root user, or Linux capabilities. Path validation, bounded chart extraction, bounded HTTP, and log-redaction protections are retained. Product build and deployment CI/CD remains disabled while the complete Kubernetes catalog stack is integration-gated; GitHub-managed CodeQL security analysis is enabled with a read-only token and GitHub-owned actions only.
-
-Helm conversion tools are isolated in the separate `helm-migration-tools` packaging target; they are not copied into kubectl-service or Tiller. The published upstream Helm `v3.21.3` binary and archived `helm-2to3` `v0.11.0` binary are provenance references only because current binary scans find 2 High and 3 Critical plus 43 High findings, respectively. The dedicated image rebuilds both tools from immutable source commits with Go 1.26.5 and checksum-locked module patches, proves two offline builds are byte-identical, locks each output hash, runs as UID/GID 10001, and fails closed unless an operator selects an explicit entrypoint. Packaging requires zero Critical or High Trivy findings and emits `dist/helm-migration-tools.cdx.json` in CycloneDX 1.6 format. Dapper independently pins Buildx `v0.36.1` and rebuilds Trivy `v0.73.1` from the verified upstream `v0.73.0` source with ORAS `v2.6.2` and go-git `v5.19.2`; the exact build-tool provenance is recorded in [build-tools/README.md](build-tools/README.md).
-
-Helm 2 remains a deliberate compatibility boundary and is not a recommendation for new deployments. The compatibility image is versioned `v2.17.1`; it is not the final state. The separate migration-tools image is versioned `v0.11.1`. `PASTURESTACK_HELM_BACKEND` defaults to `legacy-helm2` and never auto-detects or converts releases. Select `helm4` only after the cluster is supported and every release has completed the reviewed conversion and rollback gates. The sequence uses source-rebuilt Helm bridge build `v3.21.4` from upstream `v3.21.3`, source-rebuilt conversion-helper build `v0.11.1` from upstream `v0.11.0`, and final Helm build `v4.2.4` from upstream `v4.2.3`. See [MIGRATION.md](MIGRATION.md); no migration, backend switch, release deletion, or Tiller cleanup is automatic.
-
-The embedded Helm 2 client and companion Tiller executable are exposed as PastureStack build `v2.17.1`, rebuilt twice from upstream `v2.17.0`, compared byte for byte, and locked by separate SHA-256 values. Build and upstream versions are recorded in separate OCI labels; `v2.17.1` is not an upstream Helm release claim.
-
-## Configuration
-
-| Option | Environment | Legacy fallback | Purpose |
-| --- | --- | --- | --- |
-| `--platform-url` | `PLATFORM_URL` | `CATTLE_URL` | Control-platform API URL. |
-| `--platform-access-key` | `PLATFORM_ACCESS_KEY` | `CATTLE_ACCESS_KEY` | API access key. |
-| `--platform-secret-key` | `PLATFORM_SECRET_KEY` | `CATTLE_SECRET_KEY` | API secret key. |
-| `--worker-count` | `WORKER_COUNT` | none | Event worker count. |
-| `--health-check-port` | `HEALTH_CHECK_PORT` | none | Health listener port. |
-| `--locale` | `PASTURESTACK_LOCALE` | none | Operator messages: `en-US` or `zh-TW`. |
-| `--helm-backend` | `PASTURESTACK_HELM_BACKEND` | none | `legacy-helm2` by default; `helm4` only after reviewed conversion. |
-
-Legacy names are accepted only as compatibility aliases and are not PastureStack branding. Protocol event names and reply shapes remain unchanged.
-
-Namespace cleanup reads `PLATFORM_KUBERNETES_SERVER`, then the established `SERVER` and `KUBE_SERVER` fallbacks. It accepts only the exact localhost compatibility origin, the established internal Kubernetes service origin, or the standard in-cluster Kubernetes service origins. Arbitrary hosts, embedded credentials, custom proxy paths, and redirects are rejected; namespace values must be valid Kubernetes DNS labels.
+The image runs as UID/GID `65534:65534`, needs no Linux capability or privileged
+mode, and creates a private trust bundle and per-session shell home.
 
 ## Build and test
 
-The build runs from a Docker-capable Linux host:
-
 ```sh
 make test
-make build
-make package IMAGE_NAME=pasturestack/kubectl-service TAG=poc
+make validate
+make package IMAGE_NAME=pasturestack/kubectl-service TAG=v1.0.0
 ```
 
-Packaging extracts kubectl from the same checksum-verified Kubernetes 1.12.10 server archive used by the control-plane package. Every Ubuntu stage resolves only the signed snapshot and exact direct package versions in `package/ubuntu-apt.lock`; each builder and runtime writes its complete installed Debian package inventory into `/licenses` or the short-lived build evidence. Helm 2 is rebuilt from a shallow checkout of the pinned source revision. `package/helm-v2.17.0.go.mod` and its sum file lock the test graph; `package/helm-v2.17.0-client.go.mod` and its sum file lock the smaller runtime graph. The checksum-pinned patch is applied before either graph is used, and the packaging path does not fetch full dependency Git histories. Helm 3 and `helm-2to3` are rebuilt only for the fail-closed migration image; their source, license, module-only patches, complete module graphs, reproducible binary hashes, and non-root runtime policy are independently gated. Helm 4 is rebuilt with Go 1.26.5 from the checksum-locked `v4.2.3` source archive. Packaging independently verifies Helm's upstream patch and the tag-compatible applied patch, limits both patches to `go.mod` and `go.sum`, runs the affected ORAS file-content tests and Helm registry tests, verifies the full module graph, records the embedded module versions, and hashes the source license. A client-only install dry run proves the selected compatibility flags without contacting a cluster. Packaging does not publish the resulting image. `scripts/check-migration-targets` verifies the reviewed Helm 3 and `helm-2to3` source rebuilds, Helm 4 source and both security-patch representations, and all 24 consecutive Kubernetes upgrade checkpoints from 1.13 through 1.36. Offline checks reject skipped minors and malformed locks; online checks compare official stable pointers, Git tag commits, source and patch content, source-license content, and archive hashes. Download mode fetches source and reviewed patches only; known-vulnerable published executables are never downloaded or executed. See [COMPATIBILITY.md](COMPATIBILITY.md), [MIGRATION.md](MIGRATION.md), [SECURITY.md](SECURITY.md), [ORIGIN.md](ORIGIN.md), and [HELM_PATCH_ORIGIN.md](HELM_PATCH_ORIGIN.md).
+Packaging verifies both source archives and licenses, the upstream Git commits,
+the patched Helm module graph, compiler version, digest-pinned base images, a
+non-root read-only smoke run, a client-side Helm render, a Trivy Critical/High
+image scan, and a CycloneDX SBOM.
 
-## License and attribution
-
-The inherited project remains licensed under [Apache License 2.0](LICENSE). Copyright and attribution for inherited work and vendored dependencies remain with their respective authors and contributors. PastureStack contributors claim authorship only for their own changes.
+See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
+[ORIGIN.md](ORIGIN.md).

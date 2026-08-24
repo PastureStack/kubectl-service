@@ -33,7 +33,7 @@ separate, retained evidence.
   `dd35bec9570e1968b7a3d0d9f6504e5ac2f6a87eea0eee8ddcadd44d08940ee7`
 - Source license SHA-256:
   `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`
-- Compiler: Go `1.26.5`
+- Compiler: Go `1.27.0`
 - Applied patch SHA-256:
   `ae0430b03044dff4b9b2e4115f1e5c156f623356aeb0e1213e4ae0f2c9dd8354`
 - Patched ORAS module: `oras.land/oras-go/v2 v2.6.2`

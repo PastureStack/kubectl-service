@@ -1,21 +1,42 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-cd $(dirname $0)/..
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_root"
 
-PACKAGES=". $(find -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u | grep -Ev '(^\.$|.git|.trash-cache|vendor|bin)' | sed -e 's!^!./!' -e 's!$!/...!')"
+for script in scripts/* package/*.sh package/update-platform-ca tests/*.sh; do
+    [ -f "$script" ] || continue
+    bash -n "$script"
+done
 
-echo Running: go vet
-go vet ${PACKAGES}
-echo Running: gofmt check
-unformatted=$(find . -path './vendor' -prune -o -name '*.go' -type f -print | xargs gofmt -l)
-if [ -n "${unformatted}" ]; then
-    echo "${unformatted}" >&2
+bash ./tests/test-helm4-entrypoint.sh
+bash ./tests/test-non-root-runtime.sh
+bash ./tests/test-release-gate.sh
+
+test "$(grep -c '^FROM ' package/Dockerfile)" -eq 4
+grep -Fq 'ARG KUBERNETES_VERSION=v1.36.4' package/Dockerfile
+grep -Fq 'ARG HELM_VERSION=v4.2.4' package/Dockerfile
+grep -Fq 'KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9dcef7090ac800318c821' package/Dockerfile
+grep -Fq 'HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286' package/Dockerfile
+grep -Fq 'HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00' package/Dockerfile
+grep -Fq 'HELM_ORAS_GO_VERSION=2.6.2' package/Dockerfile
+test "$(grep -c 'golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466' package/Dockerfile)" -eq 2
+grep -Fq 'USER 65534:65534' package/Dockerfile
+grep -Fq -- '--cap-drop ALL' scripts/package
+grep -Fq -- '--security-opt no-new-privileges:true' scripts/package
+
+active_paths=(main.go helm package scripts/package Makefile)
+if grep -R -i -E 'helm[ -]?2|tiller|legacy-helm|v1\.12\.' "${active_paths[@]}"; then
+    echo 'Removed EOL runtime path remains active' >&2
     exit 1
 fi
 
-bash ./scripts/check-migration-targets --offline
-bash ./tests/test-migration-targets.sh
-bash ./tests/test-helm-backend-entrypoint.sh
-bash ./tests/test-non-root-runtime.sh
-bash ./tests/test-release-gate.sh
+packages=". $(find . -name '*.go' -not -path './vendor/*' -not -path './.git/*' -not -path './bin/*' -printf '%h\n' | sort -u | grep -v '^\.$' | sed -e 's!^!./!' -e 's!$!/...!')"
+go vet ${packages}
+unformatted=$(gofmt -l main.go main_test.go helm/*.go)
+if [ -n "$unformatted" ]; then
+    printf 'Unformatted Go files:\n%s\n' "$unformatted" >&2
+    exit 1
+fi
+
+echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2'

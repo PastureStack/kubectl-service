@@ -3,10 +3,8 @@ package helm
 import "time"
 
 const (
-	legacyHelm2Command     = "helm"
-	helm4Command           = "helm4"
-	LegacyHelm2BackendName = "legacy-helm2"
-	Helm4BackendName       = "helm4"
+	helm4Command     = "helm"
+	Helm4BackendName = "helm4"
 )
 
 type Stack struct {

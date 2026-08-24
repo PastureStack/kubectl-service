@@ -1,39 +1,15 @@
 package helm
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/PastureStack/kubectl-service/cli"
 )
 
-func TestActiveBackendIsExplicitLegacyHelm2(t *testing.T) {
-	if got := ActiveBackendName(); got != LegacyHelm2BackendName {
-		t.Fatalf("unexpected active backend %q", got)
-	}
-}
-
-func TestConfigureBackendRequiresExplicitSupportedValue(t *testing.T) {
-	if err := ConfigureBackend(Helm4BackendName); err != nil {
-		t.Fatalf("configure Helm 4 backend: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := ConfigureBackend(LegacyHelm2BackendName); err != nil {
-			t.Fatalf("restore legacy backend: %v", err)
-		}
-	})
+func TestActiveBackendIsHelm4(t *testing.T) {
 	if got := ActiveBackendName(); got != Helm4BackendName {
 		t.Fatalf("unexpected active backend %q", got)
 	}
-
-	err := ConfigureBackend("auto")
-	if err == nil || !strings.Contains(err.Error(), "unsupported Helm backend") {
-		t.Fatalf("unexpected invalid-backend result: %v", err)
-	}
-	if got := ActiveBackendName(); got != Helm4BackendName {
-		t.Fatalf("invalid configuration changed active backend to %q", got)
-	}
-
 }
 
 func TestPublicStackOperationsRejectMissingIdentityBeforeCallingBackend(t *testing.T) {
