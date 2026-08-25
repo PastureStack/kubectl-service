@@ -1,16 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/codegangsta/cli"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v3"
 )
 
 func TestOperatorMessagesIncludeTraditionalChinese(t *testing.T) {
@@ -37,7 +37,7 @@ func TestNewAppDefinesCompatibilityConfiguration(t *testing.T) {
 
 	flagNames := make([]string, 0, len(app.Flags))
 	for _, configuredFlag := range app.Flags {
-		flagNames = append(flagNames, configuredFlag.GetName())
+		flagNames = append(flagNames, configuredFlag.Names()[0])
 	}
 	expected := []string{
 		"platform-url",
@@ -53,22 +53,25 @@ func TestNewAppDefinesCompatibilityConfiguration(t *testing.T) {
 	}
 }
 
-func contextForLaunch(t *testing.T, values map[string]string) *cli.Context {
+func commandForLaunch(t *testing.T, values map[string]string) *cli.Command {
 	t.Helper()
-	set := flag.NewFlagSet("launch-test", flag.ContinueOnError)
-	set.String("platform-url", "", "")
-	set.String("platform-access-key", "", "")
-	set.String("platform-secret-key", "", "")
-	set.Int("worker-count", 50, "")
-	set.Int("health-check-port", 10240, "")
-	set.Bool("debug", false, "")
-	set.String("locale", "en-US", "")
-	for name, value := range values {
-		if err := set.Set(name, value); err != nil {
-			t.Fatalf("set %s: %v", name, err)
-		}
+	app := newApp()
+	var parsed *cli.Command
+	app.Action = func(_ context.Context, command *cli.Command) error {
+		parsed = command
+		return nil
 	}
-	return cli.NewContext(cli.NewApp(), set, nil)
+	args := []string{app.Name}
+	for name, value := range values {
+		args = append(args, "--"+name+"="+value)
+	}
+	if err := app.Run(context.Background(), args); err != nil {
+		t.Fatalf("parse CLI arguments: %v", err)
+	}
+	if parsed == nil {
+		t.Fatal("CLI action did not receive the parsed command")
+	}
+	return parsed
 }
 
 func TestLaunchRejectsUnsupportedLocaleBeforeStartingServices(t *testing.T) {
@@ -89,7 +92,7 @@ func TestLaunchRejectsUnsupportedLocaleBeforeStartingServices(t *testing.T) {
 		startHealthCheck = originalHealth
 	})
 
-	err := launch(contextForLaunch(t, map[string]string{"locale": "zh-CN"}))
+	err := launch(context.Background(), commandForLaunch(t, map[string]string{"locale": "zh-CN"}))
 	if err == nil || !strings.Contains(err.Error(), "unsupported locale") {
 		t.Fatalf("unsupported locale returned %v", err)
 	}
@@ -130,7 +133,7 @@ func TestLaunchPassesConfigurationAndReportsHealthExit(t *testing.T) {
 		logrus.SetLevel(originalLevel)
 	})
 
-	err := launch(contextForLaunch(t, map[string]string{
+	err := launch(context.Background(), commandForLaunch(t, map[string]string{
 		"platform-url":        "https://platform.invalid",
 		"platform-access-key": "access",
 		"platform-secret-key": "secret",

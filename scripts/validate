@@ -31,11 +31,22 @@ if grep -R -i -E 'helm[ -]?2|tiller|legacy-helm|v1\.12\.' "${active_paths[@]}"; 
     exit 1
 fi
 
-packages=". $(find . -name '*.go' -not -path './vendor/*' -not -path './.git/*' -not -path './bin/*' -printf '%h\n' | sort -u | grep -v '^\.$' | sed -e 's!^!./!' -e 's!$!/...!')"
-go vet ${packages}
+go mod verify
+go mod tidy -diff
+go vet -mod=vendor ./...
 unformatted=$(gofmt -l main.go main_test.go helm/*.go)
 if [ -n "$unformatted" ]; then
     printf 'Unformatted Go files:\n%s\n' "$unformatted" >&2
+    exit 1
+fi
+
+grep -F 'github.com/sirupsen/logrus v1.10.1' vendor/modules.txt >/dev/null
+grep -F 'github.com/urfave/cli/v3 v3.11.0' vendor/modules.txt >/dev/null
+grep -F 'github.com/gorilla/websocket v1.5.3' vendor/modules.txt >/dev/null
+grep -F 'golang.org/x/sys v0.47.0' vendor/modules.txt >/dev/null
+if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT|github.com/codegangsta/cli|github.com/rancher/swarm-agent' \
+    --exclude=kubectl-service --exclude=validate --exclude-dir=.git --exclude-dir=bin --exclude-dir=dist --exclude-dir=third_party --exclude-dir=vendor .; then
+    echo 'Retired GOPATH or dependency contract remains active' >&2
     exit 1
 fi
 

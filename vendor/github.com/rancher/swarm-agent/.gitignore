@@ -1,9 +1,0 @@
-/dist
-/build
-/.dapper
-/bin
-/package/swarm
-/package/swarm-agent
-*.swp
-/.gpath
-/.trash-cache

@@ -56,7 +56,6 @@ $(TARGETS): dapper-image
 		-e HELM_ORAS_GO_VERSION \
 		-e HELM_PATCHED_GO_MOD_SHA256 \
 		-e HELM_PATCHED_GO_SUM_SHA256 \
-		-e GO111MODULE=off \
 		$(DAPPER_IMAGE) $@
 
 trash:

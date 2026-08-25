@@ -1,0 +1,22 @@
+# github.com/gorilla/websocket v1.5.3
+## explicit; go 1.12
+github.com/gorilla/websocket
+# github.com/rancher/event-subscriber v0.0.0-20160713200406-2e42f210dae2 => ./third_party/event-subscriber
+## explicit; go 1.27.0
+github.com/rancher/event-subscriber/events
+github.com/rancher/event-subscriber/locks
+# github.com/rancher/go-rancher v0.1.1-0.20160626053643-37c17e456a2d => ./third_party/go-rancher
+## explicit; go 1.27.0
+github.com/rancher/go-rancher/client
+# github.com/sirupsen/logrus v1.10.1
+## explicit; go 1.23
+github.com/sirupsen/logrus
+# github.com/urfave/cli/v3 v3.11.0
+## explicit; go 1.22
+github.com/urfave/cli/v3
+# golang.org/x/sys v0.47.0
+## explicit; go 1.25.0
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# github.com/rancher/event-subscriber => ./third_party/event-subscriber
+# github.com/rancher/go-rancher => ./third_party/go-rancher

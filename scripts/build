@@ -6,6 +6,6 @@ source $(dirname $0)/version
 cd $(dirname $0)/..
 
 mkdir -p bin
-CGO_ENABLED=0 go build -tags "netgo osusergo" -trimpath -buildvcs=false \
+CGO_ENABLED=0 go build -mod=vendor -tags "netgo osusergo" -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.VERSION=$VERSION" \
     -o bin/kubectl-service main.go

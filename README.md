@@ -25,6 +25,11 @@ mode, and creates a private trust bundle and per-session shell home.
 
 ## Build and test
 
+The service uses Go 1.27 Modules and a checked-in vendor tree. The preserved
+Rancher v1 event/client compatibility packages are isolated under
+`third_party/`; maintained dependencies such as urfave/cli, Logrus, Gorilla
+WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
+
 ```sh
 make test
 make validate
