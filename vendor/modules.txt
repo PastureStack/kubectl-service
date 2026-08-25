@@ -2,11 +2,11 @@
 ## explicit; go 1.12
 github.com/gorilla/websocket
 # github.com/rancher/event-subscriber v0.0.0-20160713200406-2e42f210dae2 => ./third_party/event-subscriber
-## explicit; go 1.27.0
+## explicit; go 1.26.0
 github.com/rancher/event-subscriber/events
 github.com/rancher/event-subscriber/locks
 # github.com/rancher/go-rancher v0.1.1-0.20160626053643-37c17e456a2d => ./third_party/go-rancher
-## explicit; go 1.27.0
+## explicit; go 1.26.0
 github.com/rancher/go-rancher/client
 # github.com/sirupsen/logrus v1.10.1
 ## explicit; go 1.23

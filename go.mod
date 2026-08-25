@@ -1,6 +1,8 @@
 module github.com/PastureStack/kubectl-service
 
-go 1.27.0
+go 1.26.0
+
+toolchain go1.27.0
 
 require (
 	github.com/rancher/event-subscriber v0.0.0-20160713200406-2e42f210dae2
