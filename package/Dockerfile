@@ -71,7 +71,7 @@ RUN set -eux; \
     cp LICENSE /out/KUBERNETES-LICENSE; \
     chmod 0444 /out/KUBECTL-BUILDINFO.txt /out/KUBERNETES-LICENSE
 
-FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03
+FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 COPY --from=snapshot-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=helm-builder /out/helm /usr/bin/helm
