@@ -3,9 +3,9 @@ package events
 import (
 	"encoding/json"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/rancher/event-subscriber/locks"
 	"github.com/rancher/go-rancher/client"
+	log "github.com/sirupsen/logrus"
 )
 
 func newWorker() *Worker {
@@ -23,21 +23,24 @@ func (w *Worker) DoWork(rawEvent []byte, eventHandlers map[string]EventHandler, 
 	err := json.Unmarshal(rawEvent, &event)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"err": err,
+			"err": safeLogValue(err),
 		}).Error("Error unmarshalling event")
 		return
 	}
 
 	if event.Name != "ping" {
 		log.WithFields(log.Fields{
-			"event": string(rawEvent[:]),
+			"eventBytes": len(rawEvent),
+			"eventName":  safeLogValue(event.Name),
+			"eventId":    safeLogValue(event.ID),
+			"resourceId": safeLogValue(event.ResourceID),
 		}).Debug("Processing event.")
 	}
 
 	unlocker := locks.Lock(event.ResourceID)
 	if unlocker == nil {
 		log.WithFields(log.Fields{
-			"resourceId": event.ResourceID,
+			"resourceId": safeLogValue(event.ResourceID),
 		}).Debug("Resource locked. Dropping event")
 		return
 	}
@@ -47,10 +50,10 @@ func (w *Worker) DoWork(rawEvent []byte, eventHandlers map[string]EventHandler, 
 		err = fn(event, apiClient)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"eventName":  event.Name,
-				"eventId":    event.ID,
-				"resourceId": event.ResourceID,
-				"err":        err,
+				"eventName":  safeLogValue(event.Name),
+				"eventId":    safeLogValue(event.ID),
+				"resourceId": safeLogValue(event.ResourceID),
+				"err":        safeLogValue(err),
 			}).Error("Error processing event")
 
 			reply := &client.Publish{
@@ -62,13 +65,13 @@ func (w *Worker) DoWork(rawEvent []byte, eventHandlers map[string]EventHandler, 
 			_, err := apiClient.Publish.Create(reply)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"err": err,
+					"err": safeLogValue(err),
 				}).Error("Error sending error-reply")
 			}
 		}
 	} else {
 		log.WithFields(log.Fields{
-			"eventName": event.Name,
+			"eventName": safeLogValue(event.Name),
 		}).Warn("No event handler registered for event")
 	}
 }
