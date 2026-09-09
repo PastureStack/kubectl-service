@@ -31,7 +31,13 @@ grep -Fq -- '--cap-drop ALL' scripts/package
 grep -Fq -- '--security-opt no-new-privileges:true' scripts/package
 grep -Fq 'ARG TRIVY_VERSION=0.74.0' Dockerfile.dapper
 grep -Fq 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969' Dockerfile.dapper
-test "$(sha256sum build-tools/TRIVY-LICENSE | awk '{print $1}')" = 'c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4'
+expected_trivy_license_sha256='c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4'
+actual_trivy_license_sha256=$(sha256sum build-tools/TRIVY-LICENSE | awk '{print $1}')
+if [ "$actual_trivy_license_sha256" != "$expected_trivy_license_sha256" ]; then
+    printf 'TRIVY-LICENSE checksum mismatch: expected %s, got %s\n' \
+        "$expected_trivy_license_sha256" "$actual_trivy_license_sha256" >&2
+    exit 1
+fi
 test ! -e build-tools/trivy-v0.73.0-oras-go-v2.6.2-go-git-v5.19.2.patch
 if grep -E 'TRIVY_UPSTREAM_VERSION|trivy-security\.patch|GOEXPERIMENT=jsonv2' Dockerfile.dapper; then
     echo 'Retired custom Trivy rebuild path remains active' >&2
