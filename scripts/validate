@@ -50,6 +50,7 @@ if grep -R -i -E 'helm[ -]?2|tiller|legacy-helm|v1\.12\.' "${active_paths[@]}"; 
     exit 1
 fi
 
+go mod download
 go mod verify
 go mod tidy -diff
 go vet -mod=vendor ./...

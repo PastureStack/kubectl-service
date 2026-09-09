@@ -32,6 +32,7 @@ $(TARGETS): dapper-image
 		-v "$(DAPPER_TRIVY_CACHE):/tmp/trivy-cache" \
 		-e HOME=/tmp/pasturestack-dapper-home-$$(id -u) \
 		-e GOCACHE=/tmp/go-build-cache-$$(id -u) \
+		-e GOMODCACHE=/tmp/go-mod-cache-$$(id -u) \
 		-e XDG_CONFIG_HOME=/tmp/go-config-$$(id -u) \
 		-e GIT_CONFIG_GLOBAL=/tmp/gitconfig-$$(id -u) \
 		-e GOMAXPROCS=2 \
