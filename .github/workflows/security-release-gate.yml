@@ -128,8 +128,13 @@ jobs:
             --vex /workspace/security/openvex.json \
             --format json \
             --output /evidence/dapper.applicable.json \
-            --exit-code 1 \
             "$DAPPER_IMAGE"
+          applicable_count="$(jq '[.Results[]? | ((.Vulnerabilities // []) + (.Secrets // []))[]] | length' dist/dapper.applicable.json)"
+          if [ "$applicable_count" -ne 0 ]; then
+            jq -r '.Results[]? as $result | ((.Vulnerabilities // []) + (.Secrets // []))[] | [$result.Target, (.VulnerabilityID // .RuleID // "unknown"), (.PkgName // "-"), (.InstalledVersion // "-"), (.FixedVersion // "-")] | @tsv' \
+              dist/dapper.applicable.json >&2
+            exit 1
+          fi
 
           docker run --rm \
             --entrypoint /usr/bin/cat \
