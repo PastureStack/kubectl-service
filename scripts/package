@@ -15,8 +15,9 @@ HELM_GIT_COMMIT=${HELM_GIT_COMMIT:-3900f434fd3ef2b84065dc04508df48f288dba00}
 HELM_SOURCE_SHA256=${HELM_SOURCE_SHA256:-f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286}
 HELM_LICENSE_SHA256=${HELM_LICENSE_SHA256:-881467e52efeb1807406134b0ec04b1c6f52dc9dc49382713ef9ac4e0cae42f8}
 HELM_ORAS_GO_VERSION=${HELM_ORAS_GO_VERSION:-2.6.2}
-HELM_PATCHED_GO_MOD_SHA256=${HELM_PATCHED_GO_MOD_SHA256:-3c0166a13121fea5425d0e6ed0f11ad74cc14ed184cf3dfd96724b8113bbbadf}
-HELM_PATCHED_GO_SUM_SHA256=${HELM_PATCHED_GO_SUM_SHA256:-249a8957dab7b66ea7d71bf9b1e1c8df3cb046a4bff801bdbc2cec210e3f9e21}
+HELM_X_CRYPTO_VERSION=${HELM_X_CRYPTO_VERSION:-0.56.0}
+HELM_PATCHED_GO_MOD_SHA256=${HELM_PATCHED_GO_MOD_SHA256:-76accd79d2f7cec3edaf79d444438d0f5bdc0b1f1fd57485a299ba5491fcb319}
+HELM_PATCHED_GO_SUM_SHA256=${HELM_PATCHED_GO_SUM_SHA256:-2913265cc341d02288ad38054b13d8c6a11b185513b7169293706d0878c4f59a}
 
 if [ -z "${SOURCE_REVISION:-}" ]; then
     SOURCE_REVISION=$(git -C "$repo_root" rev-parse HEAD)
@@ -58,6 +59,7 @@ build_args=(
     --build-arg "HELM_SOURCE_SHA256=${HELM_SOURCE_SHA256}"
     --build-arg "HELM_LICENSE_SHA256=${HELM_LICENSE_SHA256}"
     --build-arg "HELM_ORAS_GO_VERSION=${HELM_ORAS_GO_VERSION}"
+    --build-arg "HELM_X_CRYPTO_VERSION=${HELM_X_CRYPTO_VERSION}"
     --build-arg "HELM_PATCHED_GO_MOD_SHA256=${HELM_PATCHED_GO_MOD_SHA256}"
     --build-arg "HELM_PATCHED_GO_SUM_SHA256=${HELM_PATCHED_GO_SUM_SHA256}"
 )
@@ -76,6 +78,7 @@ test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pastu
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.version"}}')" = "$HELM_VERSION"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.tools.compiler"}}')" = "go1.27.0"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.oras-go.version"}}')" = "$HELM_ORAS_GO_VERSION"
+test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.x-crypto.version"}}')" = "$HELM_X_CRYPTO_VERSION"
 test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libc6)" = "$UBUNTU_APT_LIBC6_VERSION"
 test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libcurl4t64)" = "$UBUNTU_APT_LIBCURL4_VERSION"
 test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libssh2-1t64)" = "$UBUNTU_APT_LIBSSH2_VERSION"
@@ -112,4 +115,8 @@ trivy image --skip-db-update --offline-scan --format cyclonedx \
     --output ../dist/kubectl-service.cdx.json "$IMAGE"
 docker run --rm --entrypoint /usr/bin/cat "$IMAGE" /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv \
     > ../dist/kubectl-service-ubuntu-apt-packages.tsv
+if grep -q '^linux-libc-dev[[:space:]]' ../dist/kubectl-service-ubuntu-apt-packages.tsv; then
+    echo 'linux-libc-dev build headers must not be present in the runtime image' >&2
+    exit 1
+fi
 printf '%s\n' "$IMAGE" > ../dist/images

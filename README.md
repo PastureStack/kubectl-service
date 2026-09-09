@@ -9,7 +9,7 @@ Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
 Earlier non-numeric releases remain immutable historical evidence. The
-maintained release coordinate is the pure numeric successor `v0.9.16`; product
+maintained release coordinate is the pure numeric successor `v0.9.17`; product
 identity and provenance are carried by the package name,
 labels, SBOM, and attestations rather than a text qualifier in the tag.
 
@@ -38,7 +38,7 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.16
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.17
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,

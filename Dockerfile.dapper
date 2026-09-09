@@ -1,19 +1,38 @@
 FROM docker:29.7.2-cli@sha256:000bb62ff495f986c9f5578eb67cc2cb98b91138eda81d7762d5371eb8a497fe AS docker-cli
 
-FROM docker/buildx-bin:0.36.1@sha256:1f2f6b2be4a2511ada67336e76892f1a588c89746009dd4b21069e4d867465be AS buildx
-
-FROM aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 AS trivy
-
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 COPY --from=docker-cli /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY package/ubuntu-apt.lock /licenses/ubuntu-apt.lock
+COPY toolchain/buildx-security.patch /usr/share/pasturestack/patches/buildx-security.patch
 
 ARG DAPPER_HOST_ARCH=amd64
+ARG DOCKER_VERSION=29.7.2
+ARG DOCKER_GIT_COMMIT=a7dcaa6fdb6ed04aacbfdc76357fdae01605609e
+ARG DOCKER_SOURCE_DATE_EPOCH=1785922455
+ARG DOCKER_SOURCE_SHA256=6e5c91d3a5a79db78cf989d07727d00e757aa0da4d135a3ce4b86061b83fb511
+ARG DOCKER_UPSTREAM_X_TEXT_VERSION=v0.40.0
+ARG DOCKER_X_TEXT_VERSION=v0.41.0
+ARG DOCKER_UPSTREAM_GRPC_VERSION=v1.82.1
+ARG DOCKER_GRPC_VERSION=v1.83.2
 ARG BUILDX_VERSION=0.36.1
 ARG BUILDX_GIT_COMMIT=1d8dde89b8aba914e05e45366770736fea1fd690
+ARG BUILDX_SOURCE_DATE_EPOCH=1785856317
+ARG BUILDX_SOURCE_SHA256=fb28b5c2a198d05482f0656dfb7ee161240a904e36697bf7108e5d517f23854b
+ARG BUILDX_SECURITY_PATCH_SHA256=9d424e752f24ea0e34ccd80340428f067ae8109204c401c93786a2b0be6ea993
+ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0
+ARG BUILDX_X_MOD_VERSION=v0.40.0
+ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1
+ARG BUILDX_GRPC_VERSION=v1.83.2
 ARG TRIVY_VERSION=0.74.0
-ARG TRIVY_IMAGE_DIGEST=sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+ARG TRIVY_GIT_COMMIT=e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994
+ARG TRIVY_SOURCE_DATE_EPOCH=1786703098
+ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767
+ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1
+ARG TRIVY_GRPC_VERSION=v1.83.2
+ARG TRIVY_GO_VERSION=1.26.8
+ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
 ARG GO_VERSION=1.27.0
 ARG GO_SHA256_amd64=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
 ARG GO_SHA256_arm64=51798d2c42d0e1c6ed7fd9f48728b4193abac9e8aad6dbac2fe96a81f5909bda
@@ -29,9 +48,6 @@ ENV HOST_ARCH=${DAPPER_HOST_ARCH} \
     PATH=/go/bin:/usr/local/go/bin:${PATH} \
     SHELL=/bin/bash
 
-COPY --from=docker-cli /usr/local/bin/docker /usr/bin/docker
-COPY --from=buildx /buildx /usr/libexec/docker/cli-plugins/docker-buildx
-COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY build-tools/TRIVY-LICENSE /licenses/TRIVY-LICENSE
 
 RUN set -eux; \
@@ -49,6 +65,7 @@ RUN set -eux; \
         gcc="${UBUNTU_APT_GCC_VERSION}" \
         git="${UBUNTU_APT_GIT_VERSION}" \
         libc6-dev="${UBUNTU_APT_LIBC6_DEV_VERSION}" \
+        linux-libc-dev="${UBUNTU_APT_LINUX_LIBC_DEV_VERSION}" \
         make="${UBUNTU_APT_MAKE_VERSION}" \
         tar="${UBUNTU_APT_TAR_VERSION}" \
         xz-utils="${UBUNTU_APT_XZ_UTILS_VERSION}"; \
@@ -72,7 +89,6 @@ RUN set -eux; \
     echo "${go_sha}  /tmp/go.tgz" | sha256sum -c -; \
     tar -C /usr/local -xzf /tmp/go.tgz; \
     rm -f /tmp/go.tgz; \
-    chmod +x /usr/bin/docker; \
     mkdir -p \
         /go/bin \
         /go/src/github.com/PastureStack/kubectl-service \
@@ -86,23 +102,128 @@ RUN set -eux; \
         /tmp/go-config \
         /tmp/pasturestack-dapper-home; \
     git config --system --add safe.directory '*'; \
-    go version; \
-    docker --version; \
+    go version
+
+RUN set -eux; \
+    docker_source_uri="https://codeload.github.com/docker/cli/tar.gz/${DOCKER_GIT_COMMIT}"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/docker-cli.tar.gz "${docker_source_uri}"; \
+    echo "${DOCKER_SOURCE_SHA256}  /tmp/docker-cli.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/docker-cli-src; \
+    tar -xzf /tmp/docker-cli.tar.gz -C /tmp/docker-cli-src --strip-components=1; \
+    cd /tmp/docker-cli-src; \
+    grep -F "golang.org/x/text ${DOCKER_UPSTREAM_X_TEXT_VERSION}" vendor.mod; \
+    grep -F "google.golang.org/grpc ${DOCKER_UPSTREAM_GRPC_VERSION}" vendor.mod; \
+    cp vendor.mod go.mod; \
+    cp vendor.sum go.sum; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod \
+        go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}"; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod verify; \
+    docker_build_time="$(date -u --date="@${DOCKER_SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"; \
+    SOURCE_DATE_EPOCH="${DOCKER_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
+        go build -trimpath -buildvcs=false -tags 'grpcnotrace osusergo netgo' \
+        -ldflags "-s -w -buildid= -X github.com/docker/cli/cli/version.Version=${DOCKER_VERSION} -X github.com/docker/cli/cli/version.GitCommit=${DOCKER_GIT_COMMIT} -X github.com/docker/cli/cli/version.BuildTime=${docker_build_time}" \
+        -o /usr/bin/docker ./cmd/docker; \
+    chmod +x /usr/bin/docker; \
+    docker --version | grep -F "Docker version ${DOCKER_VERSION},"; \
+    go version -m /usr/bin/docker > /licenses/DOCKER-CLI-GO-VERSION.txt; \
+    test "$(awk 'NR == 1 { print $NF }' /licenses/DOCKER-CLI-GO-VERSION.txt)" = "go${GO_VERSION}"; \
+    grep -F $'dep\tgolang.org/x/text\t'"${DOCKER_X_TEXT_VERSION}"$'\t' /licenses/DOCKER-CLI-GO-VERSION.txt; \
+    grep -F $'dep\tgoogle.golang.org/grpc\t'"${DOCKER_GRPC_VERSION}"$'\t' /licenses/DOCKER-CLI-GO-VERSION.txt; \
+    cd /; \
+    rm -rf /tmp/docker-cli-src /tmp/docker-cli.tar.gz /tmp/docker-go-mod /tmp/go-build-cache
+
+RUN set -eux; \
+    buildx_source_uri="https://codeload.github.com/docker/buildx/tar.gz/${BUILDX_GIT_COMMIT}"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/buildx.tar.gz "${buildx_source_uri}"; \
+    echo "${BUILDX_SOURCE_SHA256}  /tmp/buildx.tar.gz" | sha256sum -c -; \
+    echo "${BUILDX_SECURITY_PATCH_SHA256}  /usr/share/pasturestack/patches/buildx-security.patch" | sha256sum -c -; \
+    mkdir -p /tmp/buildx-src /usr/libexec/docker/cli-plugins; \
+    tar -xzf /tmp/buildx.tar.gz -C /tmp/buildx-src --strip-components=1; \
+    cd /tmp/buildx-src; \
+    git apply --check /usr/share/pasturestack/patches/buildx-security.patch; \
+    git apply /usr/share/pasturestack/patches/buildx-security.patch; \
+    grep -F "google.golang.org/grpc ${BUILDX_UPSTREAM_GRPC_VERSION}" go.mod; \
+    go mod edit -droprequire=github.com/docker/docker; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod \
+        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod verify; \
+    test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' github.com/moby/go-archive)" = "${BUILDX_GO_ARCHIVE_VERSION}"; \
+    test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' golang.org/x/mod)" = "${BUILDX_X_MOD_VERSION}"; \
+    test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' google.golang.org/grpc)" = "${BUILDX_GRPC_VERSION}"; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -deps ./cmd/buildx > /tmp/buildx-deps.txt; \
+    ! grep '^github.com/docker/docker/' /tmp/buildx-deps.txt; \
+    SOURCE_DATE_EPOCH="${BUILDX_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
+        go build -trimpath -buildvcs=false \
+        -ldflags "-s -w -buildid= -X github.com/docker/buildx/version.Version=v${BUILDX_VERSION} -X github.com/docker/buildx/version.Revision=${BUILDX_GIT_COMMIT} -X github.com/docker/buildx/version.Package=github.com/docker/buildx" \
+        -o /usr/libexec/docker/cli-plugins/docker-buildx ./cmd/buildx; \
+    chmod +x /usr/libexec/docker/cli-plugins/docker-buildx; \
     docker buildx version | grep -F "github.com/docker/buildx v${BUILDX_VERSION} ${BUILDX_GIT_COMMIT}"; \
+    go version -m /usr/libexec/docker/cli-plugins/docker-buildx > /licenses/BUILDX-GO-VERSION.txt; \
+    test "$(awk 'NR == 1 { print $NF }' /licenses/BUILDX-GO-VERSION.txt)" = "go${GO_VERSION}"; \
+    ! grep -F $'dep\tgithub.com/docker/docker\t' /licenses/BUILDX-GO-VERSION.txt; \
+    grep -F $'dep\tgithub.com/moby/go-archive\t'"${BUILDX_GO_ARCHIVE_VERSION}"$'\t' /licenses/BUILDX-GO-VERSION.txt; \
+    grep -F $'dep\tgolang.org/x/mod\t'"${BUILDX_X_MOD_VERSION}"$'\t' /licenses/BUILDX-GO-VERSION.txt; \
+    grep -F $'dep\tgoogle.golang.org/grpc\t'"${BUILDX_GRPC_VERSION}"$'\t' /licenses/BUILDX-GO-VERSION.txt; \
+    cd /; \
+    rm -rf /tmp/buildx-src /tmp/buildx.tar.gz /tmp/buildx-deps.txt /tmp/buildx-go-mod /tmp/go-build-cache
+
+RUN set -eux; \
+    case "${DAPPER_HOST_ARCH}" in \
+        amd64) trivy_go_arch=amd64; trivy_go_sha="${TRIVY_GO_SHA256_amd64}" ;; \
+        arm64) trivy_go_arch=arm64; trivy_go_sha="${TRIVY_GO_SHA256_arm64}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/trivy-go.tgz "https://go.dev/dl/go${TRIVY_GO_VERSION}.linux-${trivy_go_arch}.tar.gz"; \
+    echo "${trivy_go_sha}  /tmp/trivy-go.tgz" | sha256sum -c -; \
+    mkdir -p /opt/trivy-go; \
+    tar -C /opt/trivy-go --strip-components=1 -xzf /tmp/trivy-go.tgz; \
+    rm -f /tmp/trivy-go.tgz; \
+    export PATH="/opt/trivy-go/bin:${PATH}"; \
+    export GOTOOLCHAIN=local; \
+    test "$(go version | awk '{print $3}')" = "go${TRIVY_GO_VERSION}"; \
+    trivy_source_uri="https://codeload.github.com/aquasecurity/trivy/tar.gz/${TRIVY_GIT_COMMIT}"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/trivy.tar.gz "${trivy_source_uri}"; \
+    echo "${TRIVY_SOURCE_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/trivy-src; \
+    tar -xzf /tmp/trivy.tar.gz -C /tmp/trivy-src --strip-components=1; \
+    cd /tmp/trivy-src; \
+    grep -F "google.golang.org/grpc ${TRIVY_UPSTREAM_GRPC_VERSION}" go.mod; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod \
+        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
+    SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
+        go build -trimpath -buildvcs=false \
+        -ldflags "-s -w -buildid= -X=github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
+        -o /usr/local/bin/trivy ./cmd/trivy; \
+    chmod +x /usr/local/bin/trivy; \
     trivy --version | tee /licenses/TRIVY-BUILDINFO.txt; \
-    test "$(cat /licenses/TRIVY-BUILDINFO.txt)" = "Version: ${TRIVY_VERSION}"
+    test "$(cat /licenses/TRIVY-BUILDINFO.txt)" = "Version: ${TRIVY_VERSION}"; \
+    go version -m /usr/local/bin/trivy > /licenses/TRIVY-GO-VERSION.txt; \
+    test "$(awk 'NR == 1 { print $NF }' /licenses/TRIVY-GO-VERSION.txt)" = "go${TRIVY_GO_VERSION}-X:jsonv2"; \
+    grep -F $'dep\tgoogle.golang.org/grpc\t'"${TRIVY_GRPC_VERSION}"$'\t' /licenses/TRIVY-GO-VERSION.txt; \
+    cd /; \
+    rm -rf /opt/trivy-go /tmp/trivy-src /tmp/trivy.tar.gz /tmp/trivy-go-mod /tmp/go-build-cache
 
 ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/kubectl-service \
     DAPPER_OUTPUT="bin dist" \
     DAPPER_DOCKER_SOCKET=true \
-    DAPPER_ENV="TAG REPO IMAGE_NAME VERSION_OVERRIDE SOURCE_REVISION KUBERNETES_VERSION KUBERNETES_GIT_COMMIT KUBERNETES_SOURCE_SHA256 KUBERNETES_LICENSE_SHA256 HELM_VERSION HELM_GIT_COMMIT HELM_SOURCE_SHA256 HELM_LICENSE_SHA256 HELM_ORAS_GO_VERSION HELM_PATCHED_GO_MOD_SHA256 HELM_PATCHED_GO_SUM_SHA256 DOCKER_BUILDKIT DOCKER_BUILD_NETWORK" \
+    DAPPER_ENV="TAG REPO IMAGE_NAME VERSION_OVERRIDE SOURCE_REVISION KUBERNETES_VERSION KUBERNETES_GIT_COMMIT KUBERNETES_SOURCE_SHA256 KUBERNETES_LICENSE_SHA256 HELM_VERSION HELM_GIT_COMMIT HELM_SOURCE_SHA256 HELM_LICENSE_SHA256 HELM_ORAS_GO_VERSION HELM_X_CRYPTO_VERSION HELM_PATCHED_GO_MOD_SHA256 HELM_PATCHED_GO_SUM_SHA256 DOCKER_BUILDKIT DOCKER_BUILD_NETWORK" \
     HOME=/tmp/pasturestack-dapper-home
 
 WORKDIR ${DAPPER_SOURCE}
 LABEL io.pasturestack.build.buildx.version="${BUILDX_VERSION}" \
       io.pasturestack.build.buildx.revision="${BUILDX_GIT_COMMIT}" \
       io.pasturestack.build.trivy.version="${TRIVY_VERSION}" \
-      io.pasturestack.build.trivy.image-digest="${TRIVY_IMAGE_DIGEST}" \
+      io.pasturestack.build.trivy.revision="${TRIVY_GIT_COMMIT}" \
+      io.pasturestack.build.trivy.source-sha256="${TRIVY_SOURCE_SHA256}" \
+      io.pasturestack.build.trivy.go-version="${TRIVY_GO_VERSION}" \
       io.pasturestack.build.ubuntu.snapshot="20260909T000000Z" \
       io.pasturestack.build.gcc.version="4:15.2.0-5ubuntu1"
 USER 65534:65534

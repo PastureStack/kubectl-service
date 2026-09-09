@@ -30,7 +30,25 @@ grep -Fq 'perl-base="${UBUNTU_APT_PERL_BASE_VERSION}"' package/Dockerfile
 grep -Fq -- '--cap-drop ALL' scripts/package
 grep -Fq -- '--security-opt no-new-privileges:true' scripts/package
 grep -Fq 'ARG TRIVY_VERSION=0.74.0' Dockerfile.dapper
-grep -Fq 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GIT_COMMIT=e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GRPC_VERSION=v1.83.2' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_VERSION=1.26.8' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0' Dockerfile.dapper
+grep -Fq 'https://go.dev/dl/go${TRIVY_GO_VERSION}.linux-${trivy_go_arch}.tar.gz' Dockerfile.dapper
+grep -Fq 'export GOTOOLCHAIN=local' Dockerfile.dapper
+grep -Fq 'test "$(go version | awk '\''{print $3}'\'')" = "go${TRIVY_GO_VERSION}"' Dockerfile.dapper
+grep -Fq 'test "$(awk '\''NR == 1 { print $NF }'\'' /licenses/TRIVY-GO-VERSION.txt)" = "go${TRIVY_GO_VERSION}-X:jsonv2"' Dockerfile.dapper
+grep -Fq 'CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod' Dockerfile.dapper
+grep -Fq 'go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"' Dockerfile.dapper
+grep -Fq 'ARG DOCKER_GRPC_VERSION=v1.83.2' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.40.0' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_GRPC_VERSION=v1.83.2' Dockerfile.dapper
+grep -Fq 'go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"' Dockerfile.dapper
 expected_trivy_license_sha256='c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4'
 actual_trivy_license_sha256=$(sha256sum build-tools/TRIVY-LICENSE | awk '{print $1}')
 if [ "$actual_trivy_license_sha256" != "$expected_trivy_license_sha256" ]; then
@@ -39,10 +57,7 @@ if [ "$actual_trivy_license_sha256" != "$expected_trivy_license_sha256" ]; then
     exit 1
 fi
 test ! -e build-tools/trivy-v0.73.0-oras-go-v2.6.2-go-git-v5.19.2.patch
-if grep -E 'TRIVY_UPSTREAM_VERSION|trivy-security\.patch|GOEXPERIMENT=jsonv2' Dockerfile.dapper; then
-    echo 'Retired custom Trivy rebuild path remains active' >&2
-    exit 1
-fi
+test ! -e security/openvex.json
 
 active_paths=(main.go helm package scripts/package Makefile)
 if grep -R -i -E 'helm[ -]?2|tiller|legacy-helm|v1\.12\.' "${active_paths[@]}"; then
@@ -70,4 +85,4 @@ if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT|github.com/codegangsta/cl
     exit 1
 fi
 
-echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2'
+echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2 x-crypto=v0.56.0'
