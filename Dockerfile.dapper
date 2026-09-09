@@ -103,7 +103,7 @@ LABEL io.pasturestack.build.buildx.version="${BUILDX_VERSION}" \
       io.pasturestack.build.buildx.revision="${BUILDX_GIT_COMMIT}" \
       io.pasturestack.build.trivy.version="${TRIVY_VERSION}" \
       io.pasturestack.build.trivy.image-digest="${TRIVY_IMAGE_DIGEST}" \
-      io.pasturestack.build.ubuntu.snapshot="20260808T000000Z" \
+      io.pasturestack.build.ubuntu.snapshot="20260909T000000Z" \
       io.pasturestack.build.gcc.version="4:15.2.0-5ubuntu1"
 USER 65534:65534
 ENTRYPOINT ["./scripts/entry"]
