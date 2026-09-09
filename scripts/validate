@@ -70,4 +70,4 @@ if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT|github.com/codegangsta/cl
     exit 1
 fi
 
-echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2'
+echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2 x-crypto=v0.56.0'

@@ -7,8 +7,9 @@ ARG HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
 ARG HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286
 ARG HELM_LICENSE_SHA256=881467e52efeb1807406134b0ec04b1c6f52dc9dc49382713ef9ac4e0cae42f8
 ARG HELM_ORAS_GO_VERSION=2.6.2
-ARG HELM_PATCHED_GO_MOD_SHA256=3c0166a13121fea5425d0e6ed0f11ad74cc14ed184cf3dfd96724b8113bbbadf
-ARG HELM_PATCHED_GO_SUM_SHA256=249a8957dab7b66ea7d71bf9b1e1c8df3cb046a4bff801bdbc2cec210e3f9e21
+ARG HELM_X_CRYPTO_VERSION=0.56.0
+ARG HELM_PATCHED_GO_MOD_SHA256=76accd79d2f7cec3edaf79d444438d0f5bdc0b1f1fd57485a299ba5491fcb319
+ARG HELM_PATCHED_GO_SUM_SHA256=2913265cc341d02288ad38054b13d8c6a11b185513b7169293706d0878c4f59a
 ENV GOMAXPROCS=2 GOTELEMETRY=off GOTOOLCHAIN=local
 
 RUN set -eux; \
@@ -23,12 +24,15 @@ RUN set -eux; \
     echo "${HELM_LICENSE_SHA256}  LICENSE" | sha256sum -c -; \
     grep -Fxq 'go 1.26.0' go.mod; \
     grep -Fq 'oras.land/oras-go/v2 v2.6.1' go.mod; \
-    go mod edit -go=1.27.0 -require="oras.land/oras-go/v2@v${HELM_ORAS_GO_VERSION}"; \
+    go mod edit -go=1.27.0 \
+        -require="oras.land/oras-go/v2@v${HELM_ORAS_GO_VERSION}" \
+        -require="golang.org/x/crypto@v${HELM_X_CRYPTO_VERSION}"; \
     go mod tidy; \
     echo "${HELM_PATCHED_GO_MOD_SHA256}  go.mod" | sha256sum -c -; \
     echo "${HELM_PATCHED_GO_SUM_SHA256}  go.sum" | sha256sum -c -; \
     go mod verify; \
     test "$(go list -m -f '{{.Version}}' oras.land/oras-go/v2)" = "v${HELM_ORAS_GO_VERSION}"; \
+    test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "v${HELM_X_CRYPTO_VERSION}"; \
     CGO_ENABLED=0 go build -p=2 -mod=readonly -trimpath -buildvcs=false \
         -ldflags "-w -s -X helm.sh/helm/v4/internal/version.version=${HELM_VERSION} -X helm.sh/helm/v4/internal/version.metadata= -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_GIT_COMMIT} -X helm.sh/helm/v4/internal/version.gitTreeState=clean" \
         -o /out/helm ./cmd/helm; \
@@ -37,6 +41,9 @@ RUN set -eux; \
     go version -m /out/helm > /out/HELM-BUILDINFO.txt; \
     awk -v expected="v${HELM_ORAS_GO_VERSION}" \
         '$1 == "dep" && $2 == "oras.land/oras-go/v2" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
+        /out/HELM-BUILDINFO.txt; \
+    awk -v expected="v${HELM_X_CRYPTO_VERSION}" \
+        '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
         /out/HELM-BUILDINFO.txt; \
     cp LICENSE /out/HELM-LICENSE; \
     chmod 0555 /out/helm; \
@@ -86,6 +93,7 @@ ARG KUBERNETES_VERSION=v1.36.4
 ARG HELM_VERSION=v4.2.4
 ARG HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
 ARG HELM_ORAS_GO_VERSION=2.6.2
+ARG HELM_X_CRYPTO_VERSION=0.56.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/pasturestack \
@@ -152,6 +160,7 @@ LABEL org.opencontainers.image.title="pasturestack-kubectl-service" \
       io.pasturestack.helm.version="${HELM_VERSION}" \
       io.pasturestack.tools.compiler="go1.27.0" \
       io.pasturestack.helm.oras-go.version="${HELM_ORAS_GO_VERSION}" \
+      io.pasturestack.helm.x-crypto.version="${HELM_X_CRYPTO_VERSION}" \
       io.pasturestack.ubuntu.snapshot="20260909T000000Z" \
       io.pasturestack.runtime.user="65534:65534" \
       io.pasturestack.shell.requires-privileged="false"
