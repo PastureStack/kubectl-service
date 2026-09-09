@@ -30,6 +30,9 @@ ARG TRIVY_SOURCE_DATE_EPOCH=1786703098
 ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767
 ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1
 ARG TRIVY_GRPC_VERSION=v1.83.2
+ARG TRIVY_GO_VERSION=1.26.8
+ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
 ARG GO_VERSION=1.27.0
 ARG GO_SHA256_amd64=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
 ARG GO_SHA256_arm64=51798d2c42d0e1c6ed7fd9f48728b4193abac9e8aad6dbac2fe96a81f5909bda
@@ -169,6 +172,20 @@ RUN set -eux; \
     rm -rf /tmp/buildx-src /tmp/buildx.tar.gz /tmp/buildx-deps.txt /tmp/buildx-go-mod /tmp/go-build-cache
 
 RUN set -eux; \
+    case "${DAPPER_HOST_ARCH}" in \
+        amd64) trivy_go_arch=amd64; trivy_go_sha="${TRIVY_GO_SHA256_amd64}" ;; \
+        arm64) trivy_go_arch=arm64; trivy_go_sha="${TRIVY_GO_SHA256_arm64}" ;; \
+        *) echo "unsupported DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
+        -o /tmp/trivy-go.tgz "https://go.dev/dl/go${TRIVY_GO_VERSION}.linux-${trivy_go_arch}.tar.gz"; \
+    echo "${trivy_go_sha}  /tmp/trivy-go.tgz" | sha256sum -c -; \
+    mkdir -p /opt/trivy-go; \
+    tar -C /opt/trivy-go --strip-components=1 -xzf /tmp/trivy-go.tgz; \
+    rm -f /tmp/trivy-go.tgz; \
+    export PATH="/opt/trivy-go/bin:${PATH}"; \
+    export GOTOOLCHAIN=local; \
+    test "$(go version | awk '{print $3}')" = "go${TRIVY_GO_VERSION}"; \
     trivy_source_uri="https://codeload.github.com/aquasecurity/trivy/tar.gz/${TRIVY_GIT_COMMIT}"; \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
         -o /tmp/trivy.tar.gz "${trivy_source_uri}"; \
@@ -181,7 +198,7 @@ RUN set -eux; \
         go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
-    SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
+    SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false \
         -ldflags "-s -w -buildid= -X=github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \
         -o /usr/local/bin/trivy ./cmd/trivy; \
@@ -189,10 +206,10 @@ RUN set -eux; \
     trivy --version | tee /licenses/TRIVY-BUILDINFO.txt; \
     test "$(cat /licenses/TRIVY-BUILDINFO.txt)" = "Version: ${TRIVY_VERSION}"; \
     go version -m /usr/local/bin/trivy > /licenses/TRIVY-GO-VERSION.txt; \
-    test "$(awk 'NR == 1 { print $NF }' /licenses/TRIVY-GO-VERSION.txt)" = "go${GO_VERSION}"; \
+    test "$(awk 'NR == 1 { print $NF }' /licenses/TRIVY-GO-VERSION.txt)" = "go${TRIVY_GO_VERSION}"; \
     grep -F $'dep\tgoogle.golang.org/grpc\t'"${TRIVY_GRPC_VERSION}"$'\t' /licenses/TRIVY-GO-VERSION.txt; \
     cd /; \
-    rm -rf /tmp/trivy-src /tmp/trivy.tar.gz /tmp/trivy-go-mod /tmp/go-build-cache
+    rm -rf /opt/trivy-go /tmp/trivy-src /tmp/trivy.tar.gz /tmp/trivy-go-mod /tmp/go-build-cache
 
 ENV DAPPER_SOURCE=/go/src/github.com/PastureStack/kubectl-service \
     DAPPER_OUTPUT="bin dist" \
@@ -206,6 +223,7 @@ LABEL io.pasturestack.build.buildx.version="${BUILDX_VERSION}" \
       io.pasturestack.build.trivy.version="${TRIVY_VERSION}" \
       io.pasturestack.build.trivy.revision="${TRIVY_GIT_COMMIT}" \
       io.pasturestack.build.trivy.source-sha256="${TRIVY_SOURCE_SHA256}" \
+      io.pasturestack.build.trivy.go-version="${TRIVY_GO_VERSION}" \
       io.pasturestack.build.ubuntu.snapshot="20260909T000000Z" \
       io.pasturestack.build.gcc.version="4:15.2.0-5ubuntu1"
 USER 65534:65534
