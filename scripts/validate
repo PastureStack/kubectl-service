@@ -38,6 +38,9 @@ grep -Fq 'go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"' Dockerfile.dapp
 grep -Fq 'ARG DOCKER_GRPC_VERSION=v1.83.2' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.40.0' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_GRPC_VERSION=v1.83.2' Dockerfile.dapper
+grep -Fq 'go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"' Dockerfile.dapper
 expected_trivy_license_sha256='c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4'
 actual_trivy_license_sha256=$(sha256sum build-tools/TRIVY-LICENSE | awk '{print $1}')
 if [ "$actual_trivy_license_sha256" != "$expected_trivy_license_sha256" ]; then
