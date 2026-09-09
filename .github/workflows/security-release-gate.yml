@@ -1,4 +1,4 @@
-name: Manual security release gate
+name: Security release gate
 
 on:
   pull_request:
