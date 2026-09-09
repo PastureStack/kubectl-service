@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated pure numeric release tag to resume
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,7 +18,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: kubectl-service-release-${{ github.ref }}
+  group: kubectl-service-release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -23,10 +29,12 @@ jobs:
       DAPPER_IMAGE: pasturestack-kubectl-service-dapper:${{ github.sha }}
       DAPPER_TRIVY_CACHE: /tmp/pasturestack-trivy-cache
       TARGET_REPOSITORY: ghcr.io/pasturestack/kubectl-service
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - name: Check out immutable tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -34,10 +42,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_TYPE" = tag
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
-          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
 
       - name: Build verification environment and vulnerability database
@@ -58,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           make release DAPPER_IMAGE="$DAPPER_IMAGE" DAPPER_TRIVY_CACHE="$DAPPER_TRIVY_CACHE"
-          test "$(cat dist/images)" = "pasturestack/kubectl-service:$GITHUB_REF_NAME"
+          test "$(cat dist/images)" = "pasturestack/kubectl-service:$RELEASE_TAG"
           test -s dist/kubectl-service.cdx.json
           test -s dist/kubectl-service-ubuntu-apt-packages.tsv
           sha256sum dist/kubectl-service.cdx.json \
@@ -69,12 +76,12 @@ jobs:
         id: publish
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GHCR_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          source_image="pasturestack/kubectl-service:$GITHUB_REF_NAME"
-          target_image="$TARGET_REPOSITORY:$GITHUB_REF_NAME"
-          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          source_image="pasturestack/kubectl-service:$RELEASE_TAG"
+          target_image="$TARGET_REPOSITORY:$RELEASE_TAG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker tag "$source_image" "$target_image"
           docker push "$target_image"
           reference="$(docker image inspect --format '{{index .RepoDigests 0}}' "$target_image")"
@@ -100,8 +107,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "Kubectl Service $GITHUB_REF_NAME" \
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Kubectl Service $RELEASE_TAG" \
             --notes 'Maintained kubectl and Helm runtime published under a pure numeric version, with release tests, vulnerability gate, SBOM, package inventory, and provenance.' \
             dist/kubectl-service.cdx.json \
             dist/kubectl-service-ubuntu-apt-packages.tsv \
@@ -114,8 +121,7 @@ jobs:
           set +e
           docker logout ghcr.io >/dev/null 2>&1
           docker image rm -f \
-            "pasturestack/kubectl-service:$GITHUB_REF_NAME" \
-            "$TARGET_REPOSITORY:$GITHUB_REF_NAME" \
+            "pasturestack/kubectl-service:$RELEASE_TAG" \
+            "$TARGET_REPOSITORY:$RELEASE_TAG" \
             "$DAPPER_IMAGE" >/dev/null 2>&1
-          docker builder prune --all --force >/dev/null 2>&1
           rm -rf -- bin dist
