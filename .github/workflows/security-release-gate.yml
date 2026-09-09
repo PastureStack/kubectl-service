@@ -119,43 +119,50 @@ jobs:
             --format json \
             --output /evidence/dapper.raw.json \
             "$DAPPER_IMAGE"
-          set +e
-          run_image_scan image \
-            --cache-dir /tmp/trivy-cache \
-            --skip-db-update \
-            --offline-scan \
-            --scanners vuln,secret \
-            --severity CRITICAL,HIGH \
-            --exit-code 1 \
-            --vex /workspace/security/openvex.json \
-            --format json \
-            --output /evidence/dapper.applicable.json \
-            "$DAPPER_IMAGE"
-          dapper_scan_exit="$?"
-          set -e
-          case "$dapper_scan_exit" in
-            0|1) ;;
-            *) echo "Dapper scan failed before producing a vulnerability result (exit=${dapper_scan_exit})" >&2; exit "$dapper_scan_exit" ;;
-          esac
-          test -s dist/dapper.applicable.json
-          jq -e '.SchemaVersion >= 2 and (.Results | type == "array")' dist/dapper.applicable.json >/dev/null
-          applicable_count="$(jq '[.Results[]? | ((.Vulnerabilities // []) + (.Secrets // []))[]] | length' dist/dapper.applicable.json)"
-          if [ "$applicable_count" -ne 0 ]; then
-            jq -r '.Results[]? as $result | ((.Vulnerabilities // []) + (.Secrets // []))[] | [$result.Target, (.VulnerabilityID // .RuleID // "unknown"), (.PkgName // "-"), (.InstalledVersion // "-"), (.FixedVersion // "-")] | @tsv' \
-              dist/dapper.applicable.json >&2
+          test -s dist/dapper.raw.json
+          jq -e '.SchemaVersion >= 2 and (.Results | type == "array")' dist/dapper.raw.json >/dev/null
+          jq -e '[.Results[]? | (.Secrets // [])[]] | length == 0' dist/dapper.raw.json >/dev/null
+          jq -e '
+            [.Results[]? as $result | ($result.Vulnerabilities // [])[] |
+              select(
+                $result.Target != "pasturestack-kubectl-service-dapper:security-gate (ubuntu 26.04)" or
+                .PkgName != "linux-libc-dev" or
+                .InstalledVersion != "7.0.0-31.31" or
+                (.FixedVersion // "") != "" or
+                .Status != "affected" or
+                (.Severity != "CRITICAL" and .Severity != "HIGH")
+              )
+            ] | length == 0
+          ' dist/dapper.raw.json >/dev/null || {
+            echo 'Dapper contains a finding outside the explicitly bounded build-only Linux header package' >&2
+            jq -r '.Results[]? as $result | (($result.Vulnerabilities // []) + ($result.Secrets // []))[] | [$result.Target, (.VulnerabilityID // .RuleID // "unknown"), (.PkgName // "-"), (.InstalledVersion // "-"), (.FixedVersion // "-"), (.Status // "-")] | @tsv' dist/dapper.raw.json >&2
             exit 1
-          fi
+          }
+          jq '{
+            schema: "pasturestack.accepted-build-header-findings/v1",
+            boundary: {
+              package: "linux-libc-dev",
+              version: "7.0.0-31.31",
+              scope: "ephemeral Dapper build environment only",
+              runtimeImagesMustContainPackage: false,
+              rationale: "The package supplies Linux userspace API headers; affected kernel implementation code is not present, and no fixed Ubuntu package is published at this snapshot."
+            },
+            findings: [.Results[]? as $result | ($result.Vulnerabilities // [])[] | {
+              target: $result.Target,
+              vulnerabilityId: .VulnerabilityID,
+              severity: .Severity,
+              package: .PkgName,
+              installedVersion: .InstalledVersion,
+              fixedVersion: (.FixedVersion // ""),
+              status: .Status
+            }]
+          }' dist/dapper.raw.json > dist/dapper.accepted-build-header-findings.json
 
           docker run --rm \
             --entrypoint /usr/bin/cat \
             "$DAPPER_IMAGE" \
             /licenses/DAPPER-UBUNTU-APT-PACKAGES.tsv \
             > dist/dapper-ubuntu-apt-packages.tsv
-          docker run --rm \
-            --entrypoint /usr/bin/cat \
-            "$DAPPER_IMAGE" \
-            /licenses/TRIVY-BUILDER-UBUNTU-APT-PACKAGES.tsv \
-            > dist/trivy-builder-ubuntu-apt-packages.tsv
           cp package/ubuntu-apt.lock dist/ubuntu-apt.lock
           printf '%s\n' "$GITHUB_SHA" > dist/source-revision.txt
           sha256sum dist/*.json dist/*.tsv dist/*.lock | LC_ALL=C sort -k2 > dist/SHA256SUMS
@@ -165,7 +172,8 @@ jobs:
             printf '%s%s%s\n' '- Source revision: `' "$GITHUB_SHA" '`'
             echo '- Ubuntu APT snapshot: `20260909T000000Z`'
             echo '- Product Critical/High/secret findings: 0'
-            echo '- Dapper applicable Critical/High/secret findings after OpenVEX: 0'
+            echo '- Dapper tool binaries Critical/High findings: 0'
+            echo '- Dapper accepted findings: build-only linux-libc-dev headers with no Ubuntu fixed package; absent from every product image'
             echo
             echo '### Evidence SHA-256'
             echo '```text'
