@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: kubectl-service-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      DAPPER_IMAGE: pasturestack-kubectl-service-dapper:${{ github.sha }}
+      DAPPER_TRIVY_CACHE: /tmp/pasturestack-trivy-cache
+      TARGET_REPOSITORY: ghcr.io/pasturestack/kubectl-service
+    steps:
+      - name: Check out immutable tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = tag
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Build verification environment and vulnerability database
+        shell: bash
+        run: |
+          set -euo pipefail
+          make dapper-image DAPPER_IMAGE="$DAPPER_IMAGE"
+          mkdir -p "$DAPPER_TRIVY_CACHE"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$DAPPER_TRIVY_CACHE:/tmp/trivy-cache" \
+            --entrypoint /usr/local/bin/trivy \
+            "$DAPPER_IMAGE" \
+            image --cache-dir /tmp/trivy-cache --download-db-only
+
+      - name: Test, build, scan, and package exact tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          make release DAPPER_IMAGE="$DAPPER_IMAGE" DAPPER_TRIVY_CACHE="$DAPPER_TRIVY_CACHE"
+          test "$(cat dist/images)" = "pasturestack/kubectl-service:$GITHUB_REF_NAME"
+          test -s dist/kubectl-service.cdx.json
+          test -s dist/kubectl-service-ubuntu-apt-packages.tsv
+          sha256sum dist/kubectl-service.cdx.json \
+            dist/kubectl-service-ubuntu-apt-packages.tsv \
+            dist/images | LC_ALL=C sort -k2 > dist/SHA256SUMS
+
+      - name: Publish immutable runtime image
+        id: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_image="pasturestack/kubectl-service:$GITHUB_REF_NAME"
+          target_image="$TARGET_REPOSITORY:$GITHUB_REF_NAME"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "$source_image" "$target_image"
+          docker push "$target_image"
+          reference="$(docker image inspect --format '{{index .RepoDigests 0}}' "$target_image")"
+          digest="${reference#*@}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest release evidence
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Attest runtime image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.TARGET_REPOSITORY }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Kubectl Service $GITHUB_REF_NAME" \
+            --notes 'Maintained kubectl and Helm runtime published under a pure numeric version, with release tests, vulnerability gate, SBOM, package inventory, and provenance.' \
+            dist/kubectl-service.cdx.json \
+            dist/kubectl-service-ubuntu-apt-packages.tsv \
+            dist/SHA256SUMS
+
+      - name: Clean run-owned resources
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker logout ghcr.io >/dev/null 2>&1
+          docker image rm -f \
+            "pasturestack/kubectl-service:$GITHUB_REF_NAME" \
+            "$TARGET_REPOSITORY:$GITHUB_REF_NAME" \
+            "$DAPPER_IMAGE" >/dev/null 2>&1
+          docker builder prune --all --force >/dev/null 2>&1
+          rm -rf -- bin dist
