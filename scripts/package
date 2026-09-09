@@ -115,4 +115,8 @@ trivy image --skip-db-update --offline-scan --format cyclonedx \
     --output ../dist/kubectl-service.cdx.json "$IMAGE"
 docker run --rm --entrypoint /usr/bin/cat "$IMAGE" /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv \
     > ../dist/kubectl-service-ubuntu-apt-packages.tsv
+if grep -q '^linux-libc-dev[[:space:]]' ../dist/kubectl-service-ubuntu-apt-packages.tsv; then
+    echo 'linux-libc-dev build headers must not be present in the runtime image' >&2
+    exit 1
+fi
 printf '%s\n' "$IMAGE" > ../dist/images
