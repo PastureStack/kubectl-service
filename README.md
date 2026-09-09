@@ -8,6 +8,11 @@ PastureStack is an independent community project and is not affiliated with
 Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
+The previous public Release, `v0.9.11-pasturestack.7`, is immutable historical
+evidence. The maintained release coordinate is the pure numeric successor
+`v0.9.12`; product identity and provenance are carried by the package name,
+labels, SBOM, and attestations rather than a text qualifier in the tag.
+
 ## Runtime contract
 
 - Helm operations always use Helm `v4.2.4`, rebuilt from its pinned upstream
@@ -33,7 +38,7 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=pasturestack/kubectl-service TAG=v1.0.0
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.12
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,
