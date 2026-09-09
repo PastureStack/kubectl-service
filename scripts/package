@@ -76,6 +76,10 @@ test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pastu
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.version"}}')" = "$HELM_VERSION"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.tools.compiler"}}')" = "go1.27.0"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.oras-go.version"}}')" = "$HELM_ORAS_GO_VERSION"
+test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libc6)" = "$UBUNTU_APT_LIBC6_VERSION"
+test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libcurl4t64)" = "$UBUNTU_APT_LIBCURL4_VERSION"
+test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libssh2-1t64)" = "$UBUNTU_APT_LIBSSH2_VERSION"
+test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' perl-base)" = "$UBUNTU_APT_PERL_BASE_VERSION"
 
 chart_volume=$(docker volume create)
 cleanup() {

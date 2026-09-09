@@ -22,6 +22,11 @@ grep -Fq 'HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00' package/Dock
 grep -Fq 'HELM_ORAS_GO_VERSION=2.6.2' package/Dockerfile
 test "$(grep -c 'golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466' package/Dockerfile)" -eq 2
 grep -Fq 'USER 65534:65534' package/Dockerfile
+grep -Fq "UBUNTU_APT_SNAPSHOT='20260909T000000Z'" package/ubuntu-apt.lock
+grep -Fq 'libc6="${UBUNTU_APT_LIBC6_VERSION}"' package/Dockerfile
+grep -Fq 'libcurl4t64="${UBUNTU_APT_LIBCURL4_VERSION}"' package/Dockerfile
+grep -Fq 'libssh2-1t64="${UBUNTU_APT_LIBSSH2_VERSION}"' package/Dockerfile
+grep -Fq 'perl-base="${UBUNTU_APT_PERL_BASE_VERSION}"' package/Dockerfile
 grep -Fq -- '--cap-drop ALL' scripts/package
 grep -Fq -- '--security-opt no-new-privileges:true' scripts/package
 grep -Fq 'ARG TRIVY_VERSION=0.74.0' Dockerfile.dapper

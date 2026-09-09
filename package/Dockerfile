@@ -106,7 +106,11 @@ RUN set -eux; \
         bash-completion="${UBUNTU_APT_BASH_COMPLETION_VERSION}" \
         ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
         curl="${UBUNTU_APT_CURL_VERSION}" \
+        libc6="${UBUNTU_APT_LIBC6_VERSION}" \
+        libcurl4t64="${UBUNTU_APT_LIBCURL4_VERSION}" \
+        libssh2-1t64="${UBUNTU_APT_LIBSSH2_VERSION}" \
         netcat-openbsd="${UBUNTU_APT_NETCAT_OPENBSD_VERSION}" \
+        perl-base="${UBUNTU_APT_PERL_BASE_VERSION}" \
         tar="${UBUNTU_APT_TAR_VERSION}" \
         util-linux="${UBUNTU_APT_UTIL_LINUX_VERSION}"; \
     install -d -m 0755 /licenses /etc/bash_completion.d; \
@@ -148,7 +152,7 @@ LABEL org.opencontainers.image.title="pasturestack-kubectl-service" \
       io.pasturestack.helm.version="${HELM_VERSION}" \
       io.pasturestack.tools.compiler="go1.27.0" \
       io.pasturestack.helm.oras-go.version="${HELM_ORAS_GO_VERSION}" \
-      io.pasturestack.ubuntu.snapshot="20260808T000000Z" \
+      io.pasturestack.ubuntu.snapshot="20260909T000000Z" \
       io.pasturestack.runtime.user="65534:65534" \
       io.pasturestack.shell.requires-privileged="false"
 
