@@ -119,17 +119,26 @@ jobs:
             --format json \
             --output /evidence/dapper.raw.json \
             "$DAPPER_IMAGE"
+          set +e
           run_image_scan image \
             --cache-dir /tmp/trivy-cache \
             --skip-db-update \
             --offline-scan \
             --scanners vuln,secret \
             --severity CRITICAL,HIGH \
-            --exit-code 0 \
+            --exit-code 1 \
             --vex /workspace/security/openvex.json \
             --format json \
             --output /evidence/dapper.applicable.json \
             "$DAPPER_IMAGE"
+          dapper_scan_exit="$?"
+          set -e
+          case "$dapper_scan_exit" in
+            0|1) ;;
+            *) echo "Dapper scan failed before producing a vulnerability result (exit=${dapper_scan_exit})" >&2; exit "$dapper_scan_exit" ;;
+          esac
+          test -s dist/dapper.applicable.json
+          jq -e '.SchemaVersion >= 2 and (.Results | type == "array")' dist/dapper.applicable.json >/dev/null
           applicable_count="$(jq '[.Results[]? | ((.Vulnerabilities // []) + (.Secrets // []))[]] | length' dist/dapper.applicable.json)"
           if [ "$applicable_count" -ne 0 ]; then
             jq -r '.Results[]? as $result | ((.Vulnerabilities // []) + (.Secrets // []))[] | [$result.Target, (.VulnerabilityID // .RuleID // "unknown"), (.PkgName // "-"), (.InstalledVersion // "-"), (.FixedVersion // "-")] | @tsv' \
@@ -165,6 +174,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload short-lived SBOM and scan evidence
+        if: ${{ always() && hashFiles('dist/*.json') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kubectl-service-security-evidence-${{ github.run_id }}
