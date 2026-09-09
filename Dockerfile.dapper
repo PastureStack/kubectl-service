@@ -206,7 +206,7 @@ RUN set -eux; \
     trivy --version | tee /licenses/TRIVY-BUILDINFO.txt; \
     test "$(cat /licenses/TRIVY-BUILDINFO.txt)" = "Version: ${TRIVY_VERSION}"; \
     go version -m /usr/local/bin/trivy > /licenses/TRIVY-GO-VERSION.txt; \
-    test "$(awk 'NR == 1 { print $NF }' /licenses/TRIVY-GO-VERSION.txt)" = "go${TRIVY_GO_VERSION}"; \
+    test "$(awk 'NR == 1 { print $NF }' /licenses/TRIVY-GO-VERSION.txt)" = "go${TRIVY_GO_VERSION}-X:jsonv2"; \
     grep -F $'dep\tgoogle.golang.org/grpc\t'"${TRIVY_GRPC_VERSION}"$'\t' /licenses/TRIVY-GO-VERSION.txt; \
     cd /; \
     rm -rf /opt/trivy-go /tmp/trivy-src /tmp/trivy.tar.gz /tmp/trivy-go-mod /tmp/go-build-cache
