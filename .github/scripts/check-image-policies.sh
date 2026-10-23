@@ -27,15 +27,25 @@ for tool in DOCKER BUILDX TRIVY; do
     ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' "dist/$tool-PACKAGES.txt"
 done
 
+for binary in helm kubectl; do
+    jq -e --arg binary "$binary" 'any(.Results[]?;
+      .Type == "gobinary" and (.Target | split("/") | last) == $binary
+      and (.Packages | length > 0))' dist/kubectl-service.security-raw.json >/dev/null
+done
 python3 .github/scripts/enforce-runtime-vulnerabilities.py --phase runtime --repository "$GITHUB_REPOSITORY"
 run_scan fs --cache-dir /tmp/trivy-cache --skip-db-update --scanners secret --exit-code 1 /workspace
 run_scan image --cache-dir /tmp/trivy-cache --skip-db-update --offline-scan \
-    --scanners vuln,secret --exit-code 0 --format json --output /evidence/dapper.raw.json "$DAPPER_IMAGE"
+    --scanners vuln,secret --list-all-pkgs --exit-code 0 --format json --output /evidence/dapper.raw.json "$DAPPER_IMAGE"
 run_scan image --cache-dir /tmp/trivy-cache --skip-db-update --offline-scan \
-    --scanners vuln,secret --vex /workspace/security/runtime-openvex.json \
+    --scanners vuln,secret --list-all-pkgs --vex /workspace/security/runtime-openvex.json \
     --exit-code 0 --format json --output /evidence/dapper.effective.json "$DAPPER_IMAGE"
 run_scan image --cache-dir /tmp/trivy-cache --skip-db-update --offline-scan \
     --format cyclonedx --output /evidence/dapper.cdx.json "$DAPPER_IMAGE"
+for binary in docker docker-buildx trivy; do
+    jq -e --arg binary "$binary" 'any(.Results[]?;
+      .Type == "gobinary" and (.Target | split("/") | last) == $binary
+      and (.Packages | length > 0))' dist/dapper.raw.json >/dev/null
+done
 
 # Preserve the existing, separately evidenced build-only kernel-header boundary.
 # A fixed version, wrong package/version or unexpected status is never excluded.

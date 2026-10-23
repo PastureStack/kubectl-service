@@ -112,11 +112,11 @@ mkdir -p ../dist
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
     --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --exit-code 0 --format json --output ../dist/kubectl-service.security-raw.json "$IMAGE"
+    --list-all-pkgs --exit-code 0 --format json --output ../dist/kubectl-service.security-raw.json "$IMAGE"
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
     --vex ../security/runtime-openvex.json --ignore-unfixed --exit-code 1 "$IMAGE"
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --vex ../security/runtime-openvex.json --exit-code 0 --format json \
+    --vex ../security/runtime-openvex.json --list-all-pkgs --exit-code 0 --format json \
     --output ../dist/kubectl-service.security.json "$IMAGE"
 trivy image --skip-db-update --offline-scan --format cyclonedx \
     --output ../dist/kubectl-service.cdx.json "$IMAGE"
