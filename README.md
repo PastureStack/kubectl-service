@@ -47,7 +47,9 @@ non-root read-only smoke run, a client-side Helm render, full-severity Trivy
 reports, and a CycloneDX SBOM. Release gates reject all available fixes,
 unreviewed findings, and High/Critical findings. Only exact Low/Medium entries
 with official no-fix evidence may remain. The sole OpenVEX statement covers
-the absent OpenPGP package; source dependency graphs enforce that boundary.
+the absent OpenPGP package; source dependency graphs enforce that boundary
+with fail-closed checks. Raw scans must include package inventories for the
+service executable, Helm, kubectl, and each bundled Go build tool.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
 [ORIGIN.md](ORIGIN.md).

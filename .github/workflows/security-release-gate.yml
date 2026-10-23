@@ -42,6 +42,7 @@ jobs:
           docker version
           docker buildx version
           python3 .github/scripts/test_runtime_vulnerability_policy.py
+          python3 .github/scripts/test_negative_package_guards.py
 
       - name: Build the checksum-locked verification environment
         shell: bash
