@@ -8,6 +8,7 @@ ARG HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd
 ARG HELM_LICENSE_SHA256=881467e52efeb1807406134b0ec04b1c6f52dc9dc49382713ef9ac4e0cae42f8
 ARG HELM_ORAS_GO_VERSION=2.6.2
 ARG HELM_X_CRYPTO_VERSION=0.56.0
+ARG HELM_X_NET_VERSION=0.60.0
 ARG HELM_PATCHED_GO_MOD_SHA256=76accd79d2f7cec3edaf79d444438d0f5bdc0b1f1fd57485a299ba5491fcb319
 ARG HELM_PATCHED_GO_SUM_SHA256=2913265cc341d02288ad38054b13d8c6a11b185513b7169293706d0878c4f59a
 ENV GOMAXPROCS=2 GOTELEMETRY=off GOTOOLCHAIN=local
@@ -30,9 +31,11 @@ RUN set -eux; \
     go mod tidy; \
     echo "${HELM_PATCHED_GO_MOD_SHA256}  go.mod" | sha256sum -c -; \
     echo "${HELM_PATCHED_GO_SUM_SHA256}  go.sum" | sha256sum -c -; \
+    go get "golang.org/x/net@v${HELM_X_NET_VERSION}"; \
     go mod verify; \
     test "$(go list -m -f '{{.Version}}' oras.land/oras-go/v2)" = "v${HELM_ORAS_GO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "v${HELM_X_CRYPTO_VERSION}"; \
+    test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = "v${HELM_X_NET_VERSION}"; \
     CGO_ENABLED=0 go build -p=2 -mod=readonly -trimpath -buildvcs=false \
         -ldflags "-w -s -X helm.sh/helm/v4/internal/version.version=${HELM_VERSION} -X helm.sh/helm/v4/internal/version.metadata= -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_GIT_COMMIT} -X helm.sh/helm/v4/internal/version.gitTreeState=clean" \
         -o /out/helm ./cmd/helm; \
@@ -45,6 +48,9 @@ RUN set -eux; \
     awk -v expected="v${HELM_X_CRYPTO_VERSION}" \
         '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
         /out/HELM-BUILDINFO.txt; \
+    awk -v expected="v${HELM_X_NET_VERSION}" \
+        '$1 == "dep" && $2 == "golang.org/x/net" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
+        /out/HELM-BUILDINFO.txt; \
     cp LICENSE /out/HELM-LICENSE; \
     chmod 0555 /out/helm; \
     chmod 0444 /out/HELM-BUILDINFO.txt /out/HELM-LICENSE
@@ -55,6 +61,7 @@ ARG KUBERNETES_VERSION=v1.36.4
 ARG KUBERNETES_GIT_COMMIT=bb826b1d48562f110659e64e8ec444327433db95
 ARG KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9dcef7090ac800318c821
 ARG KUBERNETES_LICENSE_SHA256=cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+ARG KUBERNETES_X_NET_VERSION=v0.60.0
 ENV GOMAXPROCS=2 GOTELEMETRY=off GOTOOLCHAIN=local
 
 RUN set -eux; \
@@ -67,7 +74,11 @@ RUN set -eux; \
     rm -f /tmp/kubernetes-source.tar.gz; \
     cd /src/kubernetes; \
     echo "${KUBERNETES_LICENSE_SHA256}  LICENSE" | sha256sum -c -; \
-    GO_VERSION=1.27.3 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
+    GOWORK=off go get "golang.org/x/net@${KUBERNETES_X_NET_VERSION}"; \
+    GOWORK=off go mod tidy; \
+    GOWORK=off go mod vendor; \
+    test "$(GOWORK=off go list -m -f '{{.Version}}' golang.org/x/net)" = "${KUBERNETES_X_NET_VERSION}"; \
+    GOWORK=off GO_VERSION=1.27.3 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
         KUBE_GIT_VERSION="${KUBERNETES_VERSION}" KUBE_GIT_COMMIT="${KUBERNETES_GIT_COMMIT}" \
         KUBE_GIT_TREE_STATE=clean KUBE_GIT_MAJOR=1 KUBE_GIT_MINOR=36 \
         ./hack/make-rules/build.sh cmd/kubectl; \
@@ -75,6 +86,9 @@ RUN set -eux; \
     /out/kubectl version --client=true --output=json | grep -Fq "\"gitVersion\": \"${KUBERNETES_VERSION}\""; \
     go version -m /out/kubectl > /out/KUBECTL-BUILDINFO.txt; \
     grep -Fq '/out/kubectl: go1.27.3' /out/KUBECTL-BUILDINFO.txt; \
+    awk -v expected="${KUBERNETES_X_NET_VERSION}" \
+        '$1 == "dep" && $2 == "golang.org/x/net" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
+        /out/KUBECTL-BUILDINFO.txt; \
     cp LICENSE /out/KUBERNETES-LICENSE; \
     chmod 0444 /out/KUBECTL-BUILDINFO.txt /out/KUBERNETES-LICENSE
 
@@ -125,17 +139,17 @@ RUN set -eux; \
     install -d -m 0755 /licenses /etc/bash_completion.d; \
     install -d -m 0750 -o nobody -g nogroup /home/pasturestack; \
     install -d -m 0700 -o nobody -g nogroup /home/pasturestack/.local/share/ca-certificates; \
-    install -m 0600 -o nobody -g nogroup /etc/ssl/certs/ca-certificates.crt "${SSL_CERT_FILE}"; \
     /usr/bin/kubectl completion bash > /etc/bash_completion.d/kubectl; \
     /usr/bin/kubectl version --client=true --output=json | grep -F "${KUBERNETES_VERSION#v}"; \
     test "$(/usr/bin/helm version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }} {{ .GoVersion }}')" \
         = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.3"; \
-    { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
-        > /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv; \
     dpkg -i /opt/pasturestack-ca-certificates.deb && \
     update-ca-certificates --fresh && \
     test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.1' && \
     test ! -e /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt && \
+    install -m 0600 -o nobody -g nogroup /etc/ssl/certs/ca-certificates.crt "${SSL_CERT_FILE}" && \
+    { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
+        > /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv && \
     rm -f /opt/pasturestack-ca-certificates.deb && \
     rm -rf /var/lib/apt/lists/*; \
     rm -f /usr/bin/pebble

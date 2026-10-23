@@ -52,3 +52,5 @@ See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
 ## October 2026 security maintenance
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
+
+Helm and kubectl retain their upstream versions and source checksums; their source builds select `golang.org/x/net v0.60.0`, and the packaged binaries' build metadata verifies that selection. The private per-user CA bundle is copied only after the system CA security update.
