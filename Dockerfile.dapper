@@ -129,6 +129,8 @@ RUN set -eux; \
         go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod verify; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go list -deps ./cmd/docker > /licenses/DOCKER-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/DOCKER-PACKAGES.txt; \
     docker_build_time="$(date -u --date="@${DOCKER_SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"; \
     SOURCE_DATE_EPOCH="${DOCKER_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false -tags 'grpcnotrace osusergo netgo' \
@@ -165,6 +167,8 @@ RUN set -eux; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' google.golang.org/grpc)" = "${BUILDX_GRPC_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -deps ./cmd/buildx > /tmp/buildx-deps.txt; \
     ! grep '^github.com/docker/docker/' /tmp/buildx-deps.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /tmp/buildx-deps.txt; \
+    cp /tmp/buildx-deps.txt /licenses/BUILDX-PACKAGES.txt; \
     SOURCE_DATE_EPOCH="${BUILDX_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false \
         -ldflags "-s -w -buildid= -X github.com/docker/buildx/version.Version=v${BUILDX_VERSION} -X github.com/docker/buildx/version.Revision=${BUILDX_GIT_COMMIT} -X github.com/docker/buildx/version.Package=github.com/docker/buildx" \
@@ -207,6 +211,8 @@ RUN set -eux; \
         go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0" github.com/containerd/containerd/v2@v2.3.4; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go list -deps ./cmd/trivy > /licenses/TRIVY-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/TRIVY-PACKAGES.txt; \
     SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false \
         -ldflags "-s -w -buildid= -X=github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \

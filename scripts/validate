@@ -8,6 +8,7 @@ for script in scripts/* package/*.sh package/update-platform-ca tests/*.sh; do
     [ -f "$script" ] || continue
     bash -n "$script"
 done
+bash -n .github/scripts/check-image-policies.sh
 
 bash ./tests/test-helm4-entrypoint.sh
 bash ./tests/test-non-root-runtime.sh

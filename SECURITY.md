@@ -14,9 +14,16 @@ Release requirements:
   `no-new-privileges`;
 - bounded chart paths and sizes, bounded release listing, and redacted process
   output;
-- zero unreviewed Critical or High findings in the final image;
+- no available fixed version at any severity, no unreviewed finding, and no
+  Critical or High finding in the final image;
+- exact official no-fix evidence for residual Low/Medium findings;
 - a CycloneDX SBOM for the exact release image.
 
 The removed EOL release-server code, conversion helper, and Kubernetes 1.12
 binary are not allowed in production code, package files, or release images.
 The validation script enforces this negative boundary.
+
+`security/runtime-openvex.json` applies only to GO-2026-5932 in x/crypto
+v0.57.0. Every applicable source build rejects the absent OpenPGP package
+before accepting this statement. Raw findings are retained alongside the
+effective report; the statement cannot hide another advisory or version.
