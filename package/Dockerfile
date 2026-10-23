@@ -7,7 +7,8 @@ ARG HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
 ARG HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286
 ARG HELM_LICENSE_SHA256=881467e52efeb1807406134b0ec04b1c6f52dc9dc49382713ef9ac4e0cae42f8
 ARG HELM_ORAS_GO_VERSION=2.6.2
-ARG HELM_X_CRYPTO_VERSION=0.56.0
+ARG HELM_BASELINE_X_CRYPTO_VERSION=0.56.0
+ARG HELM_X_CRYPTO_VERSION=0.57.0
 ARG HELM_X_NET_VERSION=0.60.0
 ARG HELM_PATCHED_GO_MOD_SHA256=76accd79d2f7cec3edaf79d444438d0f5bdc0b1f1fd57485a299ba5491fcb319
 ARG HELM_PATCHED_GO_SUM_SHA256=2913265cc341d02288ad38054b13d8c6a11b185513b7169293706d0878c4f59a
@@ -27,11 +28,11 @@ RUN set -eux; \
     grep -Fq 'oras.land/oras-go/v2 v2.6.1' go.mod; \
     go mod edit -go=1.27.0 \
         -require="oras.land/oras-go/v2@v${HELM_ORAS_GO_VERSION}" \
-        -require="golang.org/x/crypto@v${HELM_X_CRYPTO_VERSION}"; \
+        -require="golang.org/x/crypto@v${HELM_BASELINE_X_CRYPTO_VERSION}"; \
     go mod tidy; \
     echo "${HELM_PATCHED_GO_MOD_SHA256}  go.mod" | sha256sum -c -; \
     echo "${HELM_PATCHED_GO_SUM_SHA256}  go.sum" | sha256sum -c -; \
-    go get "golang.org/x/net@v${HELM_X_NET_VERSION}"; \
+    go get "golang.org/x/net@v${HELM_X_NET_VERSION}" "golang.org/x/crypto@v${HELM_X_CRYPTO_VERSION}"; \
     go mod verify; \
     test "$(go list -m -f '{{.Version}}' oras.land/oras-go/v2)" = "v${HELM_ORAS_GO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "v${HELM_X_CRYPTO_VERSION}"; \
@@ -107,7 +108,7 @@ ARG KUBERNETES_VERSION=v1.36.4
 ARG HELM_VERSION=v4.2.4
 ARG HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
 ARG HELM_ORAS_GO_VERSION=2.6.2
-ARG HELM_X_CRYPTO_VERSION=0.56.0
+ARG HELM_X_CRYPTO_VERSION=0.57.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/pasturestack \
