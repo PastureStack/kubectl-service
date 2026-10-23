@@ -70,13 +70,13 @@ fi
 docker build "${build_args[@]}" -t "$IMAGE" .
 
 test "$(docker run --rm --entrypoint /usr/bin/helm "$IMAGE" version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }} {{ .GoVersion }}')" \
-    = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.0"
+    = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.3"
 docker run --rm --entrypoint /usr/bin/kubectl "$IMAGE" version --client=true --output=json \
     | grep -Fq "${KUBERNETES_VERSION#v}"
 test "$(docker image inspect "$IMAGE" --format '{{.Config.User}}')" = "65534:65534"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.kubernetes.version"}}')" = "$KUBERNETES_VERSION"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.version"}}')" = "$HELM_VERSION"
-test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.tools.compiler"}}')" = "go1.27.0"
+test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.tools.compiler"}}')" = "go1.27.3"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.oras-go.version"}}')" = "$HELM_ORAS_GO_VERSION"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.x-crypto.version"}}')" = "$HELM_X_CRYPTO_VERSION"
 test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libc6)" = "$UBUNTU_APT_LIBC6_VERSION"

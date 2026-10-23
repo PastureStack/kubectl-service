@@ -20,7 +20,7 @@ grep -Fq 'KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9d
 grep -Fq 'HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286' package/Dockerfile
 grep -Fq 'HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00' package/Dockerfile
 grep -Fq 'HELM_ORAS_GO_VERSION=2.6.2' package/Dockerfile
-test "$(grep -c 'golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466' package/Dockerfile)" -eq 2
+test "$(grep -c 'golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5' package/Dockerfile)" -eq 2
 grep -Fq 'USER 65534:65534' package/Dockerfile
 grep -Fq "UBUNTU_APT_SNAPSHOT='20260909T000000Z'" package/ubuntu-apt.lock
 grep -Fq 'libc6="${UBUNTU_APT_LIBC6_VERSION}"' package/Dockerfile
@@ -85,4 +85,4 @@ if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT|github.com/codegangsta/cl
     exit 1
 fi
 
-echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2 x-crypto=v0.56.0'
+echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.3 oras-go=v2.6.2 x-crypto=v0.56.0'

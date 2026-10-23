@@ -1,6 +1,6 @@
 FROM docker:29.7.2-cli@sha256:000bb62ff495f986c9f5578eb67cc2cb98b91138eda81d7762d5371eb8a497fe AS snapshot-ca-certificates
 
-FROM golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466 AS helm-builder
+FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS helm-builder
 
 ARG HELM_VERSION=v4.2.4
 ARG HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
@@ -13,7 +13,7 @@ ARG HELM_PATCHED_GO_SUM_SHA256=2913265cc341d02288ad38054b13d8c6a11b185513b716929
 ENV GOMAXPROCS=2 GOTELEMETRY=off GOTOOLCHAIN=local
 
 RUN set -eux; \
-    test "$(go version)" = "go version go1.27.0 linux/amd64"; \
+    test "$(go version)" = "go version go1.27.3 linux/amd64"; \
     mkdir -p /src/helm /out; \
     curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
         --output /tmp/helm-source.tar.gz "https://codeload.github.com/helm/helm/tar.gz/refs/tags/${HELM_VERSION}"; \
@@ -37,7 +37,7 @@ RUN set -eux; \
         -ldflags "-w -s -X helm.sh/helm/v4/internal/version.version=${HELM_VERSION} -X helm.sh/helm/v4/internal/version.metadata= -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_GIT_COMMIT} -X helm.sh/helm/v4/internal/version.gitTreeState=clean" \
         -o /out/helm ./cmd/helm; \
     test "$(/out/helm version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }} {{ .GoVersion }}')" \
-        = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.0"; \
+        = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.3"; \
     go version -m /out/helm > /out/HELM-BUILDINFO.txt; \
     awk -v expected="v${HELM_ORAS_GO_VERSION}" \
         '$1 == "dep" && $2 == "oras.land/oras-go/v2" && $3 == expected { found=1 } END { exit found ? 0 : 1 }' \
@@ -49,7 +49,7 @@ RUN set -eux; \
     chmod 0555 /out/helm; \
     chmod 0444 /out/HELM-BUILDINFO.txt /out/HELM-LICENSE
 
-FROM golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466 AS kubectl-builder
+FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS kubectl-builder
 
 ARG KUBERNETES_VERSION=v1.36.4
 ARG KUBERNETES_GIT_COMMIT=bb826b1d48562f110659e64e8ec444327433db95
@@ -58,7 +58,7 @@ ARG KUBERNETES_LICENSE_SHA256=cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb
 ENV GOMAXPROCS=2 GOTELEMETRY=off GOTOOLCHAIN=local
 
 RUN set -eux; \
-    test "$(go version)" = "go version go1.27.0 linux/amd64"; \
+    test "$(go version)" = "go version go1.27.3 linux/amd64"; \
     mkdir -p /src/kubernetes /out; \
     curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
         --output /tmp/kubernetes-source.tar.gz "https://dl.k8s.io/${KUBERNETES_VERSION}/kubernetes-src.tar.gz"; \
@@ -67,14 +67,14 @@ RUN set -eux; \
     rm -f /tmp/kubernetes-source.tar.gz; \
     cd /src/kubernetes; \
     echo "${KUBERNETES_LICENSE_SHA256}  LICENSE" | sha256sum -c -; \
-    GO_VERSION=1.27.0 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
+    GO_VERSION=1.27.3 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
         KUBE_GIT_VERSION="${KUBERNETES_VERSION}" KUBE_GIT_COMMIT="${KUBERNETES_GIT_COMMIT}" \
         KUBE_GIT_TREE_STATE=clean KUBE_GIT_MAJOR=1 KUBE_GIT_MINOR=36 \
         ./hack/make-rules/build.sh cmd/kubectl; \
     install -m 0555 _output/local/go/bin/kubectl /out/kubectl; \
     /out/kubectl version --client=true --output=json | grep -Fq "\"gitVersion\": \"${KUBERNETES_VERSION}\""; \
     go version -m /out/kubectl > /out/KUBECTL-BUILDINFO.txt; \
-    grep -Fq '/out/kubectl: go1.27.0' /out/KUBECTL-BUILDINFO.txt; \
+    grep -Fq '/out/kubectl: go1.27.3' /out/KUBECTL-BUILDINFO.txt; \
     cp LICENSE /out/KUBERNETES-LICENSE; \
     chmod 0444 /out/KUBECTL-BUILDINFO.txt /out/KUBERNETES-LICENSE
 
@@ -102,6 +102,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GIT_SSL_CAINFO=/home/pasturestack/.local/share/ca-certificates/ca-bundle.crt \
     KUBECONFIG=/home/pasturestack/.kube/config
 
+ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb /opt/pasturestack-ca-certificates.deb
 RUN set -eux; \
     . /licenses/ubuntu-apt.lock; \
     find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
@@ -112,7 +113,7 @@ RUN set -eux; \
     apt-get --snapshot "${UBUNTU_APT_SNAPSHOT}" install -y --no-install-recommends \
         bash="${UBUNTU_APT_BASH_VERSION}" \
         bash-completion="${UBUNTU_APT_BASH_COMPLETION_VERSION}" \
-        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_VERSION}" \
+        ca-certificates="${UBUNTU_APT_CA_CERTIFICATES_BOOTSTRAP_VERSION}" \
         curl="${UBUNTU_APT_CURL_VERSION}" \
         libc6="${UBUNTU_APT_LIBC6_VERSION}" \
         libcurl4t64="${UBUNTU_APT_LIBCURL4_VERSION}" \
@@ -128,9 +129,14 @@ RUN set -eux; \
     /usr/bin/kubectl completion bash > /etc/bash_completion.d/kubectl; \
     /usr/bin/kubectl version --client=true --output=json | grep -F "${KUBERNETES_VERSION#v}"; \
     test "$(/usr/bin/helm version --template '{{ .Version }} {{ .GitCommit }} {{ .GitTreeState }} {{ .GoVersion }}')" \
-        = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.0"; \
+        = "${HELM_VERSION} ${HELM_GIT_COMMIT} clean go1.27.3"; \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv; \
+    dpkg -i /opt/pasturestack-ca-certificates.deb && \
+    update-ca-certificates --fresh && \
+    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.1' && \
+    test ! -e /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt && \
+    rm -f /opt/pasturestack-ca-certificates.deb && \
     rm -rf /var/lib/apt/lists/*; \
     rm -f /usr/bin/pebble
 
@@ -158,7 +164,7 @@ LABEL org.opencontainers.image.title="pasturestack-kubectl-service" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       io.pasturestack.kubernetes.version="${KUBERNETES_VERSION}" \
       io.pasturestack.helm.version="${HELM_VERSION}" \
-      io.pasturestack.tools.compiler="go1.27.0" \
+      io.pasturestack.tools.compiler="go1.27.3" \
       io.pasturestack.helm.oras-go.version="${HELM_ORAS_GO_VERSION}" \
       io.pasturestack.helm.x-crypto.version="${HELM_X_CRYPTO_VERSION}" \
       io.pasturestack.ubuntu.snapshot="20260909T000000Z" \
