@@ -27,3 +27,9 @@ The validation script enforces this negative boundary.
 v0.57.0. Every applicable source build rejects the absent OpenPGP package
 before accepting this statement. Raw findings are retained alongside the
 effective report; the statement cannot hide another advisory or version.
+
+The non-shipping Docker, Buildx and Trivy verification tools select the
+official containerd v2.3.7 and OpenTelemetry v1.45.0 security updates without
+changing their own CLI versions. Complete builder reports remain subject to
+the same fixed-version policy, with only the existing exact unshipped
+kernel-header boundary handled separately.
