@@ -157,7 +157,7 @@ RUN set -eux; \
     grep -F "google.golang.org/grpc ${BUILDX_UPSTREAM_GRPC_VERSION}" go.mod; \
     go mod edit -droprequire=github.com/docker/docker; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod \
-        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
+        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}" "golang.org/x/net@v0.60.0" github.com/containerd/containerd/v2@v2.3.4; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod verify; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' github.com/moby/go-archive)" = "${BUILDX_GO_ARCHIVE_VERSION}"; \
@@ -204,7 +204,7 @@ RUN set -eux; \
     cd /tmp/trivy-src; \
     grep -F "google.golang.org/grpc ${TRIVY_UPSTREAM_GRPC_VERSION}" go.mod; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod \
-        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
+        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0" github.com/containerd/containerd/v2@v2.3.4; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
     SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
