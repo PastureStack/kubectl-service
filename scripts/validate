@@ -45,7 +45,7 @@ grep -Fq 'CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod' Dockerfile.dapper
 grep -Fq 'go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"' Dockerfile.dapper
 grep -Fq 'ARG DOCKER_GRPC_VERSION=v1.83.2' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0' Dockerfile.dapper
-grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.40.0' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.41.0' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_GRPC_VERSION=v1.83.2' Dockerfile.dapper
 grep -Fq 'go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"' Dockerfile.dapper
