@@ -34,9 +34,9 @@ grep -Fq 'ARG TRIVY_GIT_COMMIT=e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994' Dockerf
 grep -Fq 'ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767' Dockerfile.dapper
 grep -Fq 'ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
 grep -Fq 'ARG TRIVY_GRPC_VERSION=v1.83.2' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_VERSION=1.26.8' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_VERSION=1.26.10' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_amd64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_arm64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797' Dockerfile.dapper
 grep -Fq 'https://go.dev/dl/go${TRIVY_GO_VERSION}.linux-${trivy_go_arch}.tar.gz' Dockerfile.dapper
 grep -Fq 'export GOTOOLCHAIN=local' Dockerfile.dapper
 grep -Fq 'test "$(go version | awk '\''{print $3}'\'')" = "go${TRIVY_GO_VERSION}"' Dockerfile.dapper

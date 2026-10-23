@@ -12,7 +12,7 @@ ARG DOCKER_GIT_COMMIT=a7dcaa6fdb6ed04aacbfdc76357fdae01605609e
 ARG DOCKER_SOURCE_DATE_EPOCH=1785922455
 ARG DOCKER_SOURCE_SHA256=6e5c91d3a5a79db78cf989d07727d00e757aa0da4d135a3ce4b86061b83fb511
 ARG DOCKER_UPSTREAM_X_TEXT_VERSION=v0.40.0
-ARG DOCKER_X_TEXT_VERSION=v0.41.0
+ARG DOCKER_X_TEXT_VERSION=v0.42.0
 ARG DOCKER_UPSTREAM_GRPC_VERSION=v1.82.1
 ARG DOCKER_GRPC_VERSION=v1.83.2
 ARG BUILDX_VERSION=0.36.1
@@ -30,9 +30,9 @@ ARG TRIVY_SOURCE_DATE_EPOCH=1786703098
 ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767
 ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1
 ARG TRIVY_GRPC_VERSION=v1.83.2
-ARG TRIVY_GO_VERSION=1.26.8
-ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
-ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
+ARG TRIVY_GO_VERSION=1.26.10
+ARG TRIVY_GO_SHA256_amd64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+ARG TRIVY_GO_SHA256_arm64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
 ARG GO_VERSION=1.27.3
 ARG GO_SHA256_amd64=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
 ARG GO_SHA256_arm64=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
@@ -123,7 +123,7 @@ RUN set -eux; \
     cp vendor.mod go.mod; \
     cp vendor.sum go.sum; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod \
-        go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}"; \
+        go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod verify; \
     docker_build_time="$(date -u --date="@${DOCKER_SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"; \
@@ -154,7 +154,7 @@ RUN set -eux; \
     grep -F "google.golang.org/grpc ${BUILDX_UPSTREAM_GRPC_VERSION}" go.mod; \
     go mod edit -droprequire=github.com/docker/docker; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod \
-        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"; \
+        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod verify; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' github.com/moby/go-archive)" = "${BUILDX_GO_ARCHIVE_VERSION}"; \
@@ -201,7 +201,7 @@ RUN set -eux; \
     cd /tmp/trivy-src; \
     grep -F "google.golang.org/grpc ${TRIVY_UPSTREAM_GRPC_VERSION}" go.mod; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod \
-        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"; \
+        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
     SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
