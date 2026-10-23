@@ -561,6 +561,182 @@
       "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-95210",
       "reason": "Canonical Ubuntu 26.04 status: resolute_gnutls28: deferred (2026-10-15). No official resolute fixed package is available; keep tracking.",
       "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "binutils",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "binutils-common",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils-common@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "binutils-x86-64-linux-gnu",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/binutils-x86-64-linux-gnu@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2024-52005",
+      "package": "git",
+      "version": "1:2.53.0-1ubuntu1",
+      "purl": "pkg:deb/ubuntu/git@2.53.0-1ubuntu1?arch=amd64&distro=ubuntu-26.04&epoch=1",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2024-52005",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_git: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2024-52005",
+      "package": "git-man",
+      "version": "1:2.53.0-1ubuntu1",
+      "purl": "pkg:deb/ubuntu/git-man@2.53.0-1ubuntu1?arch=all&distro=ubuntu-26.04&epoch=1",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2024-52005",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_git: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "libbinutils",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libbinutils@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2026-18374",
+      "package": "libc-dev-bin",
+      "version": "2.43-2ubuntu2.4",
+      "purl": "pkg:deb/ubuntu/libc-dev-bin@2.43-2ubuntu2.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-18374",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_glibc: needed. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2026-89092",
+      "package": "libc-dev-bin",
+      "version": "2.43-2ubuntu2.4",
+      "purl": "pkg:deb/ubuntu/libc-dev-bin@2.43-2ubuntu2.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-89092",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_glibc: needed. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2026-18374",
+      "package": "libc6-dev",
+      "version": "2.43-2ubuntu2.4",
+      "purl": "pkg:deb/ubuntu/libc6-dev@2.43-2ubuntu2.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-18374",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_glibc: needed. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2026-89092",
+      "package": "libc6-dev",
+      "version": "2.43-2ubuntu2.4",
+      "purl": "pkg:deb/ubuntu/libc6-dev@2.43-2ubuntu2.4?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-89092",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_glibc: needed. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "libctf-nobfd0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libctf-nobfd0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "libctf0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libctf0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2025-66382",
+      "package": "libexpat1",
+      "version": "2.7.4-1ubuntu0.2",
+      "purl": "pkg:deb/ubuntu/libexpat1@2.7.4-1ubuntu0.2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2025-66382",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_expat: deferred (2026-09-28). No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "libgprofng0",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libgprofng0@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2017-13716",
+      "package": "libsframe3",
+      "version": "2.46-3ubuntu2",
+      "purl": "pkg:deb/ubuntu/libsframe3@2.46-3ubuntu2?arch=amd64&distro=ubuntu-26.04",
+      "severity": "LOW",
+      "status": "no_official_fix",
+      "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2017-13716",
+      "reason": "Canonical Ubuntu 26.04 status: resolute_binutils: deferred. No official resolute fixed package is available; keep tracking.",
+      "checkedAt": "2026-10-23"
+    },
+    {
+      "id": "CVE-2026-85747",
+      "package": "github.com/docker/distribution",
+      "version": "v2.8.3+incompatible",
+      "purl": "pkg:golang/github.com/docker/distribution@v2.8.3%2Bincompatible",
+      "severity": "MEDIUM",
+      "status": "no_official_fix",
+      "officialEvidence": "https://github.com/distribution/distribution/security/advisories/GHSA-685w-q87j-wqw3",
+      "reason": "Distribution v2 has no same-major official fixed version. The upstream v3.1.2 fix requires a separate module migration; retain compatibility and track without claiming the v2 dependency fixed.",
+      "checkedAt": "2026-10-23"
     }
   ]
 }
