@@ -211,7 +211,7 @@ RUN set -eux; \
     tar -C /opt/trivy-go --strip-components=1 -xzf /tmp/trivy-go.tgz; \
     rm -f /tmp/trivy-go.tgz; \
     export PATH="/opt/trivy-go/bin:${PATH}"; \
-    export GOTOOLCHAIN=local; \
+    export GOTOOLCHAIN=local GOEXPERIMENT=jsonv2; \
     test "$(go version | awk '{print $3}')" = "go${TRIVY_GO_VERSION}"; \
     trivy_source_uri="https://codeload.github.com/aquasecurity/trivy/tar.gz/${TRIVY_GIT_COMMIT}"; \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
