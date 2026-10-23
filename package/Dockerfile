@@ -101,6 +101,8 @@ COPY --from=helm-builder /out/HELM-LICENSE /out/HELM-BUILDINFO.txt /licenses/
 COPY --from=kubectl-builder /out/kubectl /usr/bin/kubectl
 COPY --from=kubectl-builder /out/KUBERNETES-LICENSE /out/KUBECTL-BUILDINFO.txt /licenses/
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
+COPY ubuntu-security-packages.lock /licenses/ubuntu-security-packages.lock
+COPY install-ubuntu-security-updates /usr/local/libexec/pasturestack/install-ubuntu-security-updates
 
 ARG IMAGE_VERSION=dev
 ARG SOURCE_REVISION=unknown
@@ -149,6 +151,7 @@ RUN set -eux; \
     test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.1' && \
     test ! -e /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt && \
     install -m 0600 -o nobody -g nogroup /etc/ssl/certs/ca-certificates.crt "${SSL_CERT_FILE}" && \
+    sh /usr/local/libexec/pasturestack/install-ubuntu-security-updates /licenses/ubuntu-security-packages.lock /etc/ssl/certs/ca-certificates.crt && \
     { printf 'snapshot\t%s\n' "${UBUNTU_APT_SNAPSHOT}"; dpkg-query -W -f='${binary:Package}\t${Version}\n' | LC_ALL=C sort; } \
         > /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv && \
     rm -f /opt/pasturestack-ca-certificates.deb && \
