@@ -79,10 +79,10 @@ test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pastu
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.tools.compiler"}}')" = "go1.27.3"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.oras-go.version"}}')" = "$HELM_ORAS_GO_VERSION"
 test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "io.pasturestack.helm.x-crypto.version"}}')" = "$HELM_X_CRYPTO_VERSION"
-test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libc6)" = "$UBUNTU_APT_LIBC6_VERSION"
+dpkg --compare-versions "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libc6)" ge "$(awk -F= '$1 == "libc6" { print $2 }' ubuntu-security-packages.lock)"
 test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libcurl4t64)" = "$(awk -F= '$1 == "libcurl4t64" { print $2 }' ubuntu-security-packages.lock)"
-test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libssh2-1t64)" = "$UBUNTU_APT_LIBSSH2_VERSION"
-test "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' perl-base)" = "$UBUNTU_APT_PERL_BASE_VERSION"
+dpkg --compare-versions "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' libssh2-1t64)" ge "$(awk -F= '$1 == "libssh2-1t64" { print $2 }' ubuntu-security-packages.lock)"
+dpkg --compare-versions "$(docker run --rm --entrypoint /usr/bin/dpkg-query "$IMAGE" -W -f='${Version}' perl-base)" ge "$(awk -F= '$1 == "perl-base" { print $2 }' ubuntu-security-packages.lock)"
 
 chart_volume=$(docker volume create)
 cleanup() {
@@ -111,6 +111,13 @@ command -v trivy >/dev/null 2>&1 || {
 mkdir -p ../dist
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
     --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --list-all-pkgs --exit-code 0 --format json --output ../dist/kubectl-service.security-raw.json "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --vex ../security/runtime-openvex.json --ignore-unfixed --exit-code 1 "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --vex ../security/runtime-openvex.json --list-all-pkgs --exit-code 0 --format json \
+    --output ../dist/kubectl-service.security.json "$IMAGE"
 trivy image --skip-db-update --offline-scan --format cyclonedx \
     --output ../dist/kubectl-service.cdx.json "$IMAGE"
 docker run --rm --entrypoint /usr/bin/cat "$IMAGE" /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv \

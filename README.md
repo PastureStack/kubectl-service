@@ -9,7 +9,7 @@ Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
 Earlier non-numeric releases remain immutable historical evidence. The
-maintained release coordinate is the pure numeric successor `v0.9.18`; product
+maintained release coordinate is the pure numeric successor `v0.9.19`; product
 identity and provenance are carried by the package name,
 labels, SBOM, and attestations rather than a text qualifier in the tag.
 
@@ -38,13 +38,16 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.18
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.19
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,
 the patched Helm module graph, compiler version, digest-pinned base images, a
-non-root read-only smoke run, a client-side Helm render, a Trivy Critical/High
-image scan, and a CycloneDX SBOM.
+non-root read-only smoke run, a client-side Helm render, full-severity Trivy
+reports, and a CycloneDX SBOM. Release gates reject all available fixes,
+unreviewed findings, and High/Critical findings. Only exact Low/Medium entries
+with official no-fix evidence may remain. The sole OpenVEX statement covers
+the absent OpenPGP package; source dependency graphs enforce that boundary.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
 [ORIGIN.md](ORIGIN.md).

@@ -46,6 +46,7 @@ jobs:
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
+          python3 .github/scripts/test_runtime_vulnerability_policy.py
 
       - name: Build verification environment and vulnerability database
         shell: bash
@@ -68,9 +69,7 @@ jobs:
           test "$(cat dist/images)" = "pasturestack/kubectl-service:$RELEASE_TAG"
           test -s dist/kubectl-service.cdx.json
           test -s dist/kubectl-service-ubuntu-apt-packages.tsv
-          sha256sum dist/kubectl-service.cdx.json \
-            dist/kubectl-service-ubuntu-apt-packages.tsv \
-            dist/images | LC_ALL=C sort -k2 > dist/SHA256SUMS
+          bash .github/scripts/check-image-policies.sh
 
       - name: Publish immutable runtime image
         id: publish
@@ -112,6 +111,11 @@ jobs:
             --notes 'Maintained kubectl and Helm runtime published under a pure numeric version, with release tests, vulnerability gate, SBOM, package inventory, and provenance.' \
             dist/kubectl-service.cdx.json \
             dist/kubectl-service-ubuntu-apt-packages.tsv \
+            dist/kubectl-service.security-raw.json \
+            dist/kubectl-service.security.json \
+            dist/dapper.raw.json dist/dapper.effective.json dist/dapper.cdx.json \
+            dist/dapper-policy.json dist/dapper.accepted-build-header-findings.json \
+            dist/runtime-openvex.json dist/*-PACKAGES.txt \
             dist/SHA256SUMS
 
       - name: Clean run-owned resources

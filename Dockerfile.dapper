@@ -26,6 +26,8 @@ ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0
 ARG BUILDX_X_MOD_VERSION=v0.41.0
 ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1
 ARG BUILDX_GRPC_VERSION=v1.83.2
+ARG SECURITY_CONTAINERD_VERSION=v2.3.7
+ARG SECURITY_OTEL_VERSION=v1.45.0
 ARG TRIVY_VERSION=0.74.0
 ARG TRIVY_GIT_COMMIT=e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994
 ARG TRIVY_SOURCE_DATE_EPOCH=1786703098
@@ -126,9 +128,17 @@ RUN set -eux; \
     cp vendor.mod go.mod; \
     cp vendor.sum go.sum; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod \
-        go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}" "golang.org/x/net@v0.60.0"; \
+        go get "golang.org/x/text@${DOCKER_X_TEXT_VERSION}" "google.golang.org/grpc@${DOCKER_GRPC_VERSION}" "golang.org/x/net@v0.60.0" \
+          "github.com/containerd/containerd/v2@${SECURITY_CONTAINERD_VERSION}" \
+          "go.opentelemetry.io/otel@${SECURITY_OTEL_VERSION}" "go.opentelemetry.io/otel/sdk@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go list -deps ./cmd/docker > /tmp/docker-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod verify; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go list -deps ./cmd/docker > /licenses/DOCKER-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/DOCKER-PACKAGES.txt; \
     docker_build_time="$(date -u --date="@${DOCKER_SOURCE_DATE_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"; \
     SOURCE_DATE_EPOCH="${DOCKER_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false -tags 'grpcnotrace osusergo netgo' \
@@ -157,14 +167,22 @@ RUN set -eux; \
     grep -F "google.golang.org/grpc ${BUILDX_UPSTREAM_GRPC_VERSION}" go.mod; \
     go mod edit -droprequire=github.com/docker/docker; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod \
-        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}" "golang.org/x/net@v0.60.0" github.com/containerd/containerd/v2@v2.3.4; \
+        go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}" "golang.org/x/net@v0.60.0" \
+          "github.com/containerd/containerd/v2@${SECURITY_CONTAINERD_VERSION}" \
+          "go.opentelemetry.io/otel@${SECURITY_OTEL_VERSION}" "go.opentelemetry.io/otel/sdk@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -deps ./cmd/buildx > /tmp/buildx-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod verify; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' github.com/moby/go-archive)" = "${BUILDX_GO_ARCHIVE_VERSION}"; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' golang.org/x/mod)" = "${BUILDX_X_MOD_VERSION}"; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' google.golang.org/grpc)" = "${BUILDX_GRPC_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -deps ./cmd/buildx > /tmp/buildx-deps.txt; \
     ! grep '^github.com/docker/docker/' /tmp/buildx-deps.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /tmp/buildx-deps.txt; \
+    cp /tmp/buildx-deps.txt /licenses/BUILDX-PACKAGES.txt; \
     SOURCE_DATE_EPOCH="${BUILDX_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false \
         -ldflags "-s -w -buildid= -X github.com/docker/buildx/version.Version=v${BUILDX_VERSION} -X github.com/docker/buildx/version.Revision=${BUILDX_GIT_COMMIT} -X github.com/docker/buildx/version.Package=github.com/docker/buildx" \
@@ -193,7 +211,7 @@ RUN set -eux; \
     tar -C /opt/trivy-go --strip-components=1 -xzf /tmp/trivy-go.tgz; \
     rm -f /tmp/trivy-go.tgz; \
     export PATH="/opt/trivy-go/bin:${PATH}"; \
-    export GOTOOLCHAIN=local; \
+    export GOTOOLCHAIN=local GOEXPERIMENT=jsonv2; \
     test "$(go version | awk '{print $3}')" = "go${TRIVY_GO_VERSION}"; \
     trivy_source_uri="https://codeload.github.com/aquasecurity/trivy/tar.gz/${TRIVY_GIT_COMMIT}"; \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 300 \
@@ -204,9 +222,17 @@ RUN set -eux; \
     cd /tmp/trivy-src; \
     grep -F "google.golang.org/grpc ${TRIVY_UPSTREAM_GRPC_VERSION}" go.mod; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod \
-        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0" github.com/containerd/containerd/v2@v2.3.4; \
+        go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}" "golang.org/x/net@v0.60.0" \
+          "github.com/containerd/containerd/v2@${SECURITY_CONTAINERD_VERSION}" \
+          "go.opentelemetry.io/otel@${SECURITY_OTEL_VERSION}" "go.opentelemetry.io/otel/sdk@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
+          "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go list -deps ./cmd/trivy > /tmp/trivy-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go list -deps ./cmd/trivy > /licenses/TRIVY-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/TRIVY-PACKAGES.txt; \
     SOURCE_DATE_EPOCH="${TRIVY_SOURCE_DATE_EPOCH}" CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod GOOS=linux GOARCH="${DAPPER_HOST_ARCH}" \
         go build -trimpath -buildvcs=false \
         -ldflags "-s -w -buildid= -X=github.com/aquasecurity/trivy/pkg/version/app.ver=${TRIVY_VERSION}" \

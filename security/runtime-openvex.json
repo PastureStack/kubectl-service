@@ -1,0 +1,14 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/PastureStack/kubectl-service/security/openvex/v0.9.19",
+  "author": "PastureStack Security",
+  "timestamp": "2026-10-23T00:00:00Z",
+  "version": 1,
+  "statements": [{
+    "vulnerability": {"name": "GO-2026-5932"},
+    "products": [{"@id": "pkg:golang/golang.org/x/crypto@v0.57.0"}],
+    "status": "not_affected",
+    "justification": "vulnerable_code_not_present",
+    "impact_statement": "The advisory is limited to golang.org/x/crypto/openpgp. Exact source dependency graphs for Helm, kubectl and the Docker, Buildx and Trivy verification tools are retained in the respective images; each build rejects any openpgp package. This statement applies only to the identified module version and does not suppress other x/crypto advisories."
+  }]
+}

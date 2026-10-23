@@ -34,6 +34,8 @@ RUN set -eux; \
     echo "${HELM_PATCHED_GO_SUM_SHA256}  go.sum" | sha256sum -c -; \
     go get "golang.org/x/net@v${HELM_X_NET_VERSION}" "golang.org/x/crypto@v${HELM_X_CRYPTO_VERSION}"; \
     go mod verify; \
+    go list -deps ./cmd/helm > /out/HELM-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/HELM-PACKAGES.txt; \
     test "$(go list -m -f '{{.Version}}' oras.land/oras-go/v2)" = "v${HELM_ORAS_GO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "v${HELM_X_CRYPTO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = "v${HELM_X_NET_VERSION}"; \
@@ -79,6 +81,8 @@ RUN set -eux; \
     GOWORK=off go mod tidy; \
     GOWORK=off go mod vendor; \
     test "$(GOWORK=off go list -m -f '{{.Version}}' golang.org/x/net)" = "${KUBERNETES_X_NET_VERSION}"; \
+    GOWORK=off go list -deps ./cmd/kubectl > /out/KUBECTL-PACKAGES.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/KUBECTL-PACKAGES.txt; \
     GOWORK=off GO_VERSION=1.27.3 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
         KUBE_GIT_VERSION="${KUBERNETES_VERSION}" KUBE_GIT_COMMIT="${KUBERNETES_GIT_COMMIT}" \
         KUBE_GIT_TREE_STATE=clean KUBE_GIT_MAJOR=1 KUBE_GIT_MINOR=36 \
@@ -97,9 +101,9 @@ FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea264
 
 COPY --from=snapshot-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=helm-builder /out/helm /usr/bin/helm
-COPY --from=helm-builder /out/HELM-LICENSE /out/HELM-BUILDINFO.txt /licenses/
+COPY --from=helm-builder /out/HELM-LICENSE /out/HELM-BUILDINFO.txt /out/HELM-PACKAGES.txt /licenses/
 COPY --from=kubectl-builder /out/kubectl /usr/bin/kubectl
-COPY --from=kubectl-builder /out/KUBERNETES-LICENSE /out/KUBECTL-BUILDINFO.txt /licenses/
+COPY --from=kubectl-builder /out/KUBERNETES-LICENSE /out/KUBECTL-BUILDINFO.txt /out/KUBECTL-PACKAGES.txt /licenses/
 COPY ubuntu-apt.lock /licenses/ubuntu-apt.lock
 COPY ubuntu-security-packages.lock /licenses/ubuntu-security-packages.lock
 COPY install-ubuntu-security-updates /usr/local/libexec/pasturestack/install-ubuntu-security-updates
