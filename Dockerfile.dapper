@@ -135,6 +135,7 @@ RUN set -eux; \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go list -deps ./cmd/docker > /tmp/docker-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go mod verify; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/docker-go-mod go list -deps ./cmd/docker > /licenses/DOCKER-PACKAGES.txt; \
     ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/DOCKER-PACKAGES.txt; \
@@ -173,6 +174,7 @@ RUN set -eux; \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -deps ./cmd/buildx > /tmp/buildx-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go mod verify; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' github.com/moby/go-archive)" = "${BUILDX_GO_ARCHIVE_VERSION}"; \
     test "$(GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/buildx-go-mod go list -m -f '{{.Version}}' golang.org/x/mod)" = "${BUILDX_X_MOD_VERSION}"; \
@@ -227,6 +229,7 @@ RUN set -eux; \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${SECURITY_OTEL_VERSION}" \
           "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@${SECURITY_OTEL_VERSION}"; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod download; \
+    GOFLAGS=-mod=mod GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go list -deps ./cmd/trivy > /tmp/trivy-resolved-packages.txt; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go mod verify; \
     GOFLAGS=-mod=mod GOWORK=off GOPROXY=off GOSUMDB=sum.golang.org GOMODCACHE=/tmp/trivy-go-mod go list -deps ./cmd/trivy > /licenses/TRIVY-PACKAGES.txt; \
     ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /licenses/TRIVY-PACKAGES.txt; \
