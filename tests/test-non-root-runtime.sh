@@ -28,7 +28,7 @@ grep -Fq 'ARG HELM_VERSION=v4.2.4' "$repo_root/package/Dockerfile"
 grep -Fq 'KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9dcef7090ac800318c821' "$repo_root/package/Dockerfile"
 grep -Fq 'HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286' "$repo_root/package/Dockerfile"
 grep -Fq 'HELM_ORAS_GO_VERSION=2.6.2' "$repo_root/package/Dockerfile"
-test "$(grep -c 'golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466' "$repo_root/package/Dockerfile")" -eq 2
+test "$(grep -c 'golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5' "$repo_root/package/Dockerfile")" -eq 2
 grep -Fq -- '--cap-drop ALL' "$repo_root/scripts/package"
 grep -Fq -- '--security-opt no-new-privileges:true' "$repo_root/scripts/package"
 

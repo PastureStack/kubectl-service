@@ -2,7 +2,7 @@
 
 The release image uses Kubernetes `v1.36.4` and Helm `v4.2.4` from immutable,
 SHA-256-pinned upstream source archives. Both tools are rebuilt with Go
-`1.27.0`; Helm's ORAS dependency is advanced from vulnerable `v2.6.1` to
+`1.27.3`; Helm's ORAS dependency is advanced from vulnerable `v2.6.1` to
 `v2.6.2`. Helm's version, Git commit, clean tree state, compiler, patched
 `go.mod`, and patched `go.sum` are verified during the image build.
 

@@ -24,7 +24,7 @@ jobs:
     env:
       DAPPER_IMAGE: pasturestack-kubectl-service-dapper:security-gate
       DAPPER_TRIVY_CACHE: /tmp/pasturestack-trivy-cache
-      VERSION_OVERRIDE: v0.9.17
+      VERSION_OVERRIDE: v0.9.18
     steps:
       - name: Check out the complete source history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,7 +127,7 @@ jobs:
               select(
                 $result.Target != "pasturestack-kubectl-service-dapper:security-gate (ubuntu 26.04)" or
                 .PkgName != "linux-libc-dev" or
-                .InstalledVersion != "7.0.0-31.31" or
+                .InstalledVersion != "7.0.0-38.38" or
                 (.FixedVersion // "") != "" or
                 .Status != "affected" or
                 (.Severity != "CRITICAL" and .Severity != "HIGH")
@@ -142,7 +142,7 @@ jobs:
             schema: "pasturestack.accepted-build-header-findings/v1",
             boundary: {
               package: "linux-libc-dev",
-              version: "7.0.0-31.31",
+              version: "7.0.0-38.38",
               scope: "ephemeral Dapper build environment only",
               runtimeImagesMustContainPackage: false,
               rationale: "The package supplies Linux userspace API headers; affected kernel implementation code is not present, and no fixed Ubuntu package is published at this snapshot."

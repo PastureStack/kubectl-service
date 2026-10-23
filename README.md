@@ -9,16 +9,16 @@ Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
 Earlier non-numeric releases remain immutable historical evidence. The
-maintained release coordinate is the pure numeric successor `v0.9.17`; product
+maintained release coordinate is the pure numeric successor `v0.9.18`; product
 identity and provenance are carried by the package name,
 labels, SBOM, and attestations rather than a text qualifier in the tag.
 
 ## Runtime contract
 
 - Helm operations always use Helm `v4.2.4`, rebuilt from its pinned upstream
-  source with Go `1.27.0` and patched ORAS `v2.6.2`.
+  source with Go `1.27.3` and patched ORAS `v2.6.2`.
 - Kubernetes operations use `kubectl v1.36.4`, rebuilt from the pinned official
-  source archive with Go `1.27.0`.
+  source archive with Go `1.27.3`.
 - Catalog event names and reply shapes remain unchanged.
 - The former backend selector has been removed. No runtime fallback or
   automatic conversion exists.
@@ -38,7 +38,7 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.17
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.18
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,
@@ -48,3 +48,9 @@ image scan, and a CycloneDX SBOM.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
 [ORIGIN.md](ORIGIN.md).
+
+## October 2026 security maintenance
+
+Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
+
+Helm and kubectl retain their upstream versions and source checksums; their source builds select `golang.org/x/net v0.60.0`, and the packaged binaries' build metadata verifies that selection. The private per-user CA bundle is copied only after the system CA security update.

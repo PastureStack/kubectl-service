@@ -1,7 +1,7 @@
 # Compatibility
 
 The supported tool contract is Kubernetes `v1.36.4` plus Helm `v4.2.4`.
-Rebuilding these tools with Go `1.27.0` does not change their CLI or API
+Rebuilding these tools with Go `1.27.3` does not change their CLI or API
 version; the Helm ORAS update affects only OCI artifact transport internals.
 
 Catalog create, upgrade, rollback, delete, and list operations keep their

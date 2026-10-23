@@ -20,7 +20,7 @@ grep -Fq 'KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9d
 grep -Fq 'HELM_SOURCE_SHA256=f1a1aa56fff071cfa1eecc18c6a7212b2e5c7a0a123fd8e4dcae620bd51b4286' package/Dockerfile
 grep -Fq 'HELM_GIT_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00' package/Dockerfile
 grep -Fq 'HELM_ORAS_GO_VERSION=2.6.2' package/Dockerfile
-test "$(grep -c 'golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466' package/Dockerfile)" -eq 2
+test "$(grep -c 'golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5' package/Dockerfile)" -eq 2
 grep -Fq 'USER 65534:65534' package/Dockerfile
 grep -Fq "UBUNTU_APT_SNAPSHOT='20260909T000000Z'" package/ubuntu-apt.lock
 grep -Fq 'libc6="${UBUNTU_APT_LIBC6_VERSION}"' package/Dockerfile
@@ -34,9 +34,9 @@ grep -Fq 'ARG TRIVY_GIT_COMMIT=e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994' Dockerf
 grep -Fq 'ARG TRIVY_SOURCE_SHA256=285594b257470eb444fd2836be95a835565ee600382320c977b3993d8efbb767' Dockerfile.dapper
 grep -Fq 'ARG TRIVY_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
 grep -Fq 'ARG TRIVY_GRPC_VERSION=v1.83.2' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_VERSION=1.26.8' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_SHA256_amd64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b' Dockerfile.dapper
-grep -Fq 'ARG TRIVY_GO_SHA256_arm64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_VERSION=1.26.10' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_amd64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5' Dockerfile.dapper
+grep -Fq 'ARG TRIVY_GO_SHA256_arm64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797' Dockerfile.dapper
 grep -Fq 'https://go.dev/dl/go${TRIVY_GO_VERSION}.linux-${trivy_go_arch}.tar.gz' Dockerfile.dapper
 grep -Fq 'export GOTOOLCHAIN=local' Dockerfile.dapper
 grep -Fq 'test "$(go version | awk '\''{print $3}'\'')" = "go${TRIVY_GO_VERSION}"' Dockerfile.dapper
@@ -45,7 +45,7 @@ grep -Fq 'CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod' Dockerfile.dapper
 grep -Fq 'go get "google.golang.org/grpc@${TRIVY_GRPC_VERSION}"' Dockerfile.dapper
 grep -Fq 'ARG DOCKER_GRPC_VERSION=v1.83.2' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_GO_ARCHIVE_VERSION=v0.3.0' Dockerfile.dapper
-grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.40.0' Dockerfile.dapper
+grep -Fq 'ARG BUILDX_X_MOD_VERSION=v0.41.0' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_UPSTREAM_GRPC_VERSION=v1.82.1' Dockerfile.dapper
 grep -Fq 'ARG BUILDX_GRPC_VERSION=v1.83.2' Dockerfile.dapper
 grep -Fq 'go get "github.com/moby/go-archive@${BUILDX_GO_ARCHIVE_VERSION}" "golang.org/x/mod@${BUILDX_X_MOD_VERSION}" "google.golang.org/grpc@${BUILDX_GRPC_VERSION}"' Dockerfile.dapper
@@ -85,4 +85,4 @@ if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT|github.com/codegangsta/cl
     exit 1
 fi
 
-echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.0 oras-go=v2.6.2 x-crypto=v0.56.0'
+echo 'KUBECTL_SERVICE_VALIDATE_OK kubernetes=v1.36.4 helm=v4.2.4 compiler=go1.27.3 oras-go=v2.6.2 x-crypto=v0.57.0 x-net=v0.60.0'
