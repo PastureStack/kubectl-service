@@ -35,7 +35,7 @@ RUN set -eux; \
     go get "golang.org/x/net@v${HELM_X_NET_VERSION}" "golang.org/x/crypto@v${HELM_X_CRYPTO_VERSION}"; \
     go mod verify; \
     go list -deps ./cmd/helm > /out/HELM-PACKAGES.txt; \
-    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/HELM-PACKAGES.txt; \
+    if grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/HELM-PACKAGES.txt; then echo 'Forbidden OpenPGP dependency' >&2; exit 1; fi; \
     test "$(go list -m -f '{{.Version}}' oras.land/oras-go/v2)" = "v${HELM_ORAS_GO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = "v${HELM_X_CRYPTO_VERSION}"; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = "v${HELM_X_NET_VERSION}"; \
@@ -82,7 +82,7 @@ RUN set -eux; \
     GOWORK=off go mod vendor; \
     test "$(GOWORK=off go list -m -f '{{.Version}}' golang.org/x/net)" = "${KUBERNETES_X_NET_VERSION}"; \
     GOWORK=off go list -deps ./cmd/kubectl > /out/KUBECTL-PACKAGES.txt; \
-    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/KUBECTL-PACKAGES.txt; \
+    if grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/KUBECTL-PACKAGES.txt; then echo 'Forbidden OpenPGP dependency' >&2; exit 1; fi; \
     GOWORK=off GO_VERSION=1.27.3 FORCE_HOST_GO=1 KUBE_BUILD_PLATFORMS=linux/amd64 \
         KUBE_GIT_VERSION="${KUBERNETES_VERSION}" KUBE_GIT_COMMIT="${KUBERNETES_GIT_COMMIT}" \
         KUBE_GIT_TREE_STATE=clean KUBE_GIT_MAJOR=1 KUBE_GIT_MINOR=36 \

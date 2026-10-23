@@ -19,15 +19,15 @@ run_scan() {
 for tool in HELM KUBECTL; do
     docker run --rm --entrypoint /usr/bin/cat "$image" "/licenses/$tool-PACKAGES.txt" > "dist/$tool-PACKAGES.txt"
     test -s "dist/$tool-PACKAGES.txt"
-    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' "dist/$tool-PACKAGES.txt"
+    if grep -Eq '^golang.org/x/crypto/openpgp(/|$)' "dist/$tool-PACKAGES.txt"; then echo 'Forbidden OpenPGP dependency' >&2; exit 1; fi
 done
 for tool in DOCKER BUILDX TRIVY; do
     docker run --rm --entrypoint /usr/bin/cat "$DAPPER_IMAGE" "/licenses/$tool-PACKAGES.txt" > "dist/$tool-PACKAGES.txt"
     test -s "dist/$tool-PACKAGES.txt"
-    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' "dist/$tool-PACKAGES.txt"
+    if grep -Eq '^golang.org/x/crypto/openpgp(/|$)' "dist/$tool-PACKAGES.txt"; then echo 'Forbidden OpenPGP dependency' >&2; exit 1; fi
 done
 
-for binary in helm kubectl; do
+for binary in helm kubectl kubectl-service; do
     jq -e --arg binary "$binary" 'any(.Results[]?;
       .Type == "gobinary" and (.Target | split("/") | last) == $binary
       and (.Packages | length > 0))' dist/kubectl-service.security-raw.json >/dev/null
