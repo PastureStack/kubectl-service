@@ -109,17 +109,30 @@ command -v trivy >/dev/null 2>&1 || {
     exit 1
 }
 mkdir -p ../dist
+consumer_container=$(docker create "$IMAGE" /bin/true)
+if docker cp "$consumer_container:/usr/share/pasturestack/security/ubuntu-backports" ../dist/ubuntu-backports; then
+    docker rm "$consumer_container" >/dev/null
+else
+    docker rm "$consumer_container" >/dev/null
+    exit 1
+fi
+(cd ../dist/ubuntu-backports && sha256sum --check SHA256SUMS)
 trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
-trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --list-all-pkgs --exit-code 0 --format json --output ../dist/kubectl-service.security-raw.json "$IMAGE"
-trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --vex ../security/runtime-openvex.json --ignore-unfixed --exit-code 1 "$IMAGE"
-trivy image --skip-db-update --offline-scan --scanners vuln,secret \
-    --vex ../security/runtime-openvex.json --list-all-pkgs --exit-code 0 --format json \
-    --output ../dist/kubectl-service.security.json "$IMAGE"
+    --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --list-all-pkgs --exit-code 0 --format json \
+    --output ../dist/kubectl-service.security-raw.json "$IMAGE"
 trivy image --skip-db-update --offline-scan --format cyclonedx \
     --output ../dist/kubectl-service.cdx.json "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --vex ../security/runtime-openvex.json --vex ../dist/ubuntu-backports/openvex.json \
+    --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --vex ../security/runtime-openvex.json --vex ../dist/ubuntu-backports/openvex.json \
+    --ignore-unfixed --exit-code 1 "$IMAGE"
+trivy image --skip-db-update --offline-scan --scanners vuln,secret \
+    --vex ../security/runtime-openvex.json --vex ../dist/ubuntu-backports/openvex.json \
+    --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --list-all-pkgs --exit-code 0 --format json \
+    --output ../dist/kubectl-service.security.json "$IMAGE"
+
 docker run --rm --entrypoint /usr/bin/cat "$IMAGE" /licenses/KUBECTL-SERVICE-UBUNTU-APT-PACKAGES.tsv \
     > ../dist/kubectl-service-ubuntu-apt-packages.tsv
 if grep -q '^linux-libc-dev[[:space:]]' ../dist/kubectl-service-ubuntu-apt-packages.tsv; then

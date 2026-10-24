@@ -14,7 +14,7 @@ bash ./tests/test-helm4-entrypoint.sh
 bash ./tests/test-non-root-runtime.sh
 bash ./tests/test-release-gate.sh
 
-test "$(grep -c '^FROM ' package/Dockerfile)" -eq 4
+test "$(grep -c '^FROM ' package/Dockerfile)" -eq 5
 grep -Fq 'ARG KUBERNETES_VERSION=v1.36.4' package/Dockerfile
 grep -Fq 'ARG HELM_VERSION=v4.2.4' package/Dockerfile
 grep -Fq 'KUBERNETES_SOURCE_SHA256=3c28f11492472df48e658551bf268fd92938b127b0f9dcef7090ac800318c821' package/Dockerfile
