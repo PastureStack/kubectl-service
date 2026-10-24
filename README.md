@@ -1,5 +1,9 @@
 # PastureStack Kubectl Service
 
+Linux candidate **`v0.9.20`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider. It is unpublished; the last published Linux release is [v0.9.19](https://github.com/PastureStack/kubectl-service/releases/tag/v0.9.19).
+
+Build and image examples below target the candidate. Publication requires completed bundle provenance and the normal final-image release gates. The image retains bundle manifests, source inputs and install/verify receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
+
 Kubectl Service handles catalog install, upgrade, rollback, remove, list, and
 interactive kubectl operations. The maintained runtime uses Kubernetes
 `v1.36.4` and Helm `v4.2.4` only.
@@ -8,10 +12,8 @@ PastureStack is an independent community project and is not affiliated with
 Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
-Earlier non-numeric releases remain immutable historical evidence. The
-maintained release coordinate is the pure numeric successor `v0.9.19`; product
-identity and provenance are carried by the package name,
-labels, SBOM, and attestations rather than a text qualifier in the tag.
+After publication, select `ghcr.io/pasturestack/kubectl-service:v0.9.20` through the reviewed Catalog
+package. OCI labels, SBOM and release attestations bind the published bytes.
 
 ## Runtime contract
 
@@ -38,7 +40,7 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.19
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.20
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,
@@ -46,7 +48,7 @@ the patched Helm module graph, compiler version, digest-pinned base images, a
 non-root read-only smoke run, a client-side Helm render, full-severity Trivy
 reports, and a CycloneDX SBOM. Release gates reject all available fixes,
 unreviewed findings, and High/Critical findings. Only exact Low/Medium entries
-with official no-fix evidence may remain. The sole OpenVEX statement covers
+with official no-fix evidence may remain. The existing Go OpenVEX statement covers
 the absent OpenPGP package; source dependency graphs enforce that boundary
 with fail-closed checks. Raw scans must include package inventories for the
 service executable, Helm, kubectl, and each bundled Go build tool.
@@ -54,7 +56,7 @@ service executable, Helm, kubectl, and each bundled Go build tool.
 See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and
 [ORIGIN.md](ORIGIN.md).
 
-## October 2026 security maintenance
+## Security inputs
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
 

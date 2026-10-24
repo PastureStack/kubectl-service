@@ -32,6 +32,24 @@ for binary in helm kubectl kubectl-service; do
       .Type == "gobinary" and (.Target | split("/") | last) == $binary
       and (.Packages | length > 0))' dist/kubectl-service.security-raw.json >/dev/null
 done
+bundle_image='ghcr.io/pasturestack/ubuntu-security-backports:v0.1.0@sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a'
+mkdir -p dist/bundle-tools
+bundle_container=$(docker create "$bundle_image" unused)
+if docker cp "$bundle_container:/out/verify-consumer-evidence.py" dist/bundle-tools/verify-consumer-evidence.py && \
+    docker cp "$bundle_container:/out/SHA256SUMS" dist/bundle-tools/SHA256SUMS; then
+    docker rm "$bundle_container" >/dev/null
+else
+    docker rm "$bundle_container" >/dev/null
+    exit 1
+fi
+(cd dist/bundle-tools && \
+    test "$(grep -Ec '^[0-9a-f]{64}  verify-consumer-evidence\.py$' SHA256SUMS)" -eq 1 && \
+    grep -E '^[0-9a-f]{64}  verify-consumer-evidence\.py$' SHA256SUMS | sha256sum --check -)
+python3 dist/bundle-tools/verify-consumer-evidence.py \
+    --evidence-dir dist/ubuntu-backports --sbom dist/kubectl-service.cdx.json \
+    --bundle-checksums dist/bundle-tools/SHA256SUMS \
+    --expected-bundle-digest 'sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a' > dist/ubuntu-backports-validation.json
+tar -cf dist/ubuntu-backports-evidence.tar -C dist ubuntu-backports ubuntu-backports-validation.json
 python3 .github/scripts/enforce-runtime-vulnerabilities.py --phase runtime --repository "$GITHUB_REPOSITORY"
 run_scan fs --cache-dir /tmp/trivy-cache --skip-db-update --scanners secret --exit-code 1 /workspace
 run_scan image --cache-dir /tmp/trivy-cache --skip-db-update --offline-scan \
@@ -59,5 +77,5 @@ cp security/runtime-openvex.json dist/runtime-openvex.json
 cp package/ubuntu-apt.lock dist/ubuntu-apt.lock
 cp package/ubuntu-security-packages.lock dist/ubuntu-security-packages.lock
 printf '%s\n' "$GITHUB_SHA" > dist/source-revision.txt
-sha256sum dist/*.json dist/*.tsv dist/*.lock dist/*-PACKAGES.txt | LC_ALL=C sort -k2 > dist/SHA256SUMS
+sha256sum dist/*.json dist/*.tar dist/*.tsv dist/*.lock dist/*-PACKAGES.txt | LC_ALL=C sort -k2 > dist/SHA256SUMS
 printf 'KUBECTL_SERVICE_FULL_SEVERITY_GATE_OK fixed_available=0 unregistered=0 secrets=0\n'

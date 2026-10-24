@@ -116,7 +116,7 @@ jobs:
             dist/kubectl-service.security.json \
             dist/dapper.raw.json dist/dapper.effective.json dist/dapper.cdx.json \
             dist/dapper-policy.json dist/dapper.accepted-build-header-findings.json \
-            dist/runtime-openvex.json dist/*-PACKAGES.txt \
+            dist/runtime-openvex.json dist/*-PACKAGES.txt dist/ubuntu-backports-evidence.tar \
             dist/dapper-ubuntu-apt-packages.tsv dist/ubuntu-apt.lock dist/ubuntu-security-packages.lock \
             dist/SHA256SUMS
 
