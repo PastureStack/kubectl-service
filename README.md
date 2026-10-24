@@ -1,8 +1,8 @@
 # PastureStack Kubectl Service
 
-Linux candidate **`v0.9.20`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider. It is unpublished; the last published Linux release is [v0.9.19](https://github.com/PastureStack/kubectl-service/releases/tag/v0.9.19).
+Linux runtime **`v0.9.20`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
 
-Build and image examples below target the candidate. Publication requires completed bundle provenance and the normal final-image release gates. The image retains bundle manifests, source inputs and install/verify receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
+The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
 Kubectl Service handles catalog install, upgrade, rollback, remove, list, and
 interactive kubectl operations. The maintained runtime uses Kubernetes
@@ -12,7 +12,7 @@ PastureStack is an independent community project and is not affiliated with
 Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
-After publication, select `ghcr.io/pasturestack/kubectl-service:v0.9.20` through the reviewed Catalog
+Select `ghcr.io/pasturestack/kubectl-service:v0.9.20` through the reviewed Catalog
 package. OCI labels, SBOM and release attestations bind the published bytes.
 
 ## Runtime contract
