@@ -1,11 +1,53 @@
 """Exercise the actual shell guards, including commands after a rejected match."""
 import pathlib
 import re
+import fnmatch
+import shlex
 import subprocess
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# Exact evidence names attested by the v0.9.20 producer, plus its checksum file.
+# The SDK inventory glob is retained; every other release asset is explicit.
+ATTESTED_ASSETS = {
+    'BUILDX-PACKAGES.txt', 'DOCKER-PACKAGES.txt', 'HELM-PACKAGES.txt',
+    'KUBECTL-PACKAGES.txt', 'TRIVY-PACKAGES.txt', 'dapper-policy.json',
+    'dapper-ubuntu-apt-packages.tsv', 'dapper.accepted-build-header-findings.json',
+    'dapper.cdx.json', 'dapper.effective.json', 'dapper.raw.json',
+    'kubectl-service-ubuntu-apt-packages.tsv', 'kubectl-service.cdx.json',
+    'kubectl-service.security-raw.json', 'kubectl-service.security.json',
+    'runtime-openvex.json', 'ubuntu-apt.lock', 'ubuntu-security-packages.lock',
+    'ubuntu-backports-evidence.tar', 'ubuntu-backports-validation.json', 'SHA256SUMS',
+}
+
+
+def verify_release_asset_set(workflow):
+    lines = workflow.splitlines()
+    starts = [i for i, line in enumerate(lines) if line.strip().startswith('gh release create ')]
+    assert len(starts) == 1, 'Expected one explicit release publication command'
+    command = []
+    for line in lines[starts[0]:]:
+        command.append(line.strip().removesuffix('\\').strip())
+        if not line.rstrip().endswith('\\'):
+            break
+    patterns = {arg for arg in shlex.split(' '.join(command)) if arg.startswith('dist/')}
+    expected = {'dist/' + name for name in ATTESTED_ASSETS}
+    assert patterns <= expected | {'dist/*-PACKAGES.txt'}, 'Unexpected/unbounded release asset pattern'
+    missing = {name for name in expected if not any(fnmatch.fnmatchcase(name, p) for p in patterns)}
+    assert not missing, 'Attested evidence omitted from release: ' + ', '.join(sorted(missing))
+
+
+class ReleaseAssetSet(unittest.TestCase):
+    def test_all_attested_evidence_has_an_explicit_publication_path(self):
+        verify_release_asset_set((ROOT / '.github/workflows/release.yml').read_text())
+
+    def test_missing_validation_or_raw_report_is_rejected(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        for path in ('dist/ubuntu-backports-validation.json', 'dist/kubectl-service.security-raw.json'):
+            with self.subTest(path=path), self.assertRaisesRegex(AssertionError, 'Attested evidence omitted'):
+                verify_release_asset_set(workflow.replace(path, ''))
 
 
 class NegativePackageGuards(unittest.TestCase):
