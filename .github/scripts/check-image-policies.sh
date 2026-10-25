@@ -32,7 +32,7 @@ for binary in helm kubectl kubectl-service; do
       .Type == "gobinary" and (.Target | split("/") | last) == $binary
       and (.Packages | length > 0))' dist/kubectl-service.security-raw.json >/dev/null
 done
-bundle_image='ghcr.io/pasturestack/ubuntu-security-backports:v0.1.0@sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a'
+bundle_image='ghcr.io/pasturestack/ubuntu-security-backports:v0.1.1@sha256:45d6b507b63a18459ae5cf76afd4d9731f8ef43b9c40e4c3dbb01899e1752b19'
 mkdir -p dist/bundle-tools
 bundle_container=$(docker create "$bundle_image" unused)
 if docker cp "$bundle_container:/out/verify-consumer-evidence.py" dist/bundle-tools/verify-consumer-evidence.py && \
@@ -48,7 +48,7 @@ fi
 python3 dist/bundle-tools/verify-consumer-evidence.py \
     --evidence-dir dist/ubuntu-backports --sbom dist/kubectl-service.cdx.json \
     --bundle-checksums dist/bundle-tools/SHA256SUMS \
-    --expected-bundle-digest 'sha256:2742a3d429e4e14bc587f6dedc51ded4246cf90bbaedcd86c67d0885e32a6f2a' > dist/ubuntu-backports-validation.json
+    --expected-bundle-digest 'sha256:45d6b507b63a18459ae5cf76afd4d9731f8ef43b9c40e4c3dbb01899e1752b19' > dist/ubuntu-backports-validation.json
 tar -cf dist/ubuntu-backports-evidence.tar -C dist ubuntu-backports ubuntu-backports-validation.json
 python3 .github/scripts/enforce-runtime-vulnerabilities.py --phase runtime --repository "$GITHUB_REPOSITORY"
 run_scan fs --cache-dir /tmp/trivy-cache --skip-db-update --scanners secret --exit-code 1 /workspace
