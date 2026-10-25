@@ -1,6 +1,8 @@
 # PastureStack Kubectl Service
 
-Linux runtime **`v0.9.20`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+Linux runtime **`v0.9.21`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+
+The shared bundle includes the official Brotli decoder fix for CVE-2026-111497.
 
 The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
@@ -12,7 +14,7 @@ PastureStack is an independent community project and is not affiliated with
 Rancher Labs or SUSE. The repository preserves the history and Apache-2.0
 license of the upstream `rancher/kubectld` project.
 
-Select `ghcr.io/pasturestack/kubectl-service:v0.9.20` through the reviewed Catalog
+Select `ghcr.io/pasturestack/kubectl-service:v0.9.21` through the reviewed Catalog
 package. OCI labels, SBOM and release attestations bind the published bytes.
 
 ## Runtime contract
@@ -40,7 +42,7 @@ WebSocket, and `x/sys` are pinned by `go.mod` and `go.sum`.
 ```sh
 make test
 make validate
-make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.20
+make package IMAGE_NAME=local/pasturestack/kubectl-service TAG=v0.9.21
 ```
 
 Packaging verifies both source archives and licenses, the upstream Git commits,
